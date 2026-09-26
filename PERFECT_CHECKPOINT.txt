@@ -1,0 +1,25 @@
+YouTube Loop - PERFECT CHECKPOINT RESTORE
+
+Target behavior restored from the stable checkpoint before SQL work:
+- YouTube URL loading
+- Single A/B loops with saved speed
+- Start/end toggle behavior
+- A/B +/-0.3s adjustment and replay from loop start
+- A/S/D sentence navigation
+- Q/W English/Vietnamese subtitle hide/show
+- Combine 2 loops and alternate continuously
+- English transcript + Gemini EN->VI translation
+- Per-loop vocabulary panel on the right
+- Vocabulary saved inside loop localStorage data
+- Live sidebar time preview while choosing loop boundaries
+
+Not included at this checkpoint:
+- Chinese transcript auto-detection
+- SQL/cloud persistence
+- FreeTranscriptAPI changes
+- experimental loop zoom timeline
+
+Vercel env vars for Gemini features:
+- GEMINI_API_KEY
+- TRANSLATE_ACCESS_CODE
+- optional GEMINI_MODEL

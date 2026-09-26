@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube Loop V5 Study</title>
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="title-wrap">
+            <strong>Loops</strong>
+            <span id="videoShortTitle">No video</span>
+          </div>
+          <button id="addLoopBtn" class="add-loop-btn" title="Tạo loop mới">+</button>
+        </div>
+
+        <div class="url-box">
+          <input id="youtubeUrl" type="text" placeholder="Paste YouTube URL..." autocomplete="off" />
+          <button id="loadBtn">Load</button>
+        </div>
+        <p id="urlError" class="error"></p>
+
+        <div class="combine-toolbar">
+          <span id="combineCount">Ghép: 0/2</span>
+          <button id="createCombineBtn" disabled>Ghép 2</button>
+          <button id="clearCombineBtn" title="Bỏ chọn ghép">Hủy</button>
+        </div>
+
+        <div id="savedLoops" class="saved-loops">
+          <div class="empty">Chưa có loop nào.</div>
+        </div>
+      </aside>
+
+      <main class="main-stage">
+        <div class="player-shell" id="playerShell">
+          <div class="video-wrap">
+            <div id="player"></div>
+
+            <div id="subtitleBox" class="subtitle-box">
+              <div id="subtitleEnglish" class="subtitle-en">Phụ đề sẽ hiện ở đây.</div>
+              <div id="subtitleVietnamese" class="subtitle-vi">Bản dịch tiếng Việt sẽ nằm bên dưới.</div>
+            </div>
+
+            <div id="subtitleStatus" class="subtitle-status">Chưa tải phụ đề</div>
+
+            <aside id="vocabPanel" class="vocab-panel" aria-live="polite">
+              <div class="vocab-panel-head">
+                <span class="vocab-panel-title">TỪ VỰNG</span>
+                <span id="vocabLoopName" class="vocab-loop-name">Chưa chọn loop</span>
+              </div>
+              <div id="vocabList" class="vocab-list">
+                <div class="vocab-empty">Tạo loop để lấy từ mới.</div>
+              </div>
+            </aside>
+          </div>
+
+          <div class="controls-shell">
+            <div class="transport-row">
+              <button id="playPauseBtn" class="icon-btn" title="Play / Pause">▶</button>
+              <button id="muteBtn" class="icon-btn" title="Mute / Unmute">🔊</button>
+
+              <div id="currentTime" class="time-text">0:00</div>
+
+              <div class="timeline-wrap">
+                <div class="timeline-overlay">
+                  <div id="markerA" class="ab-marker a hidden"></div>
+                  <div id="markerB" class="ab-marker b hidden"></div>
+                  <div id="loopRegion" class="loop-region hidden"></div>
+                </div>
+                <input id="progressBar" class="progress-bar" type="range" min="0" max="1000" value="0" />
+              </div>
+
+              <div id="durationTime" class="time-text">0:00</div>
+
+              <div class="speed-stepper" title="Tốc độ video">
+                <button id="speedDownBtn" type="button">−</button>
+                <span id="speedValue">1.0x</span>
+                <button id="speedUpBtn" type="button">+</button>
+              </div>
+
+              <button id="fullscreenBtn" class="icon-btn" title="Fullscreen">⛶</button>
+            </div>
+
+            <div class="action-row">
+              <button id="seekBackBtn" class="action-btn">⏮</button>
+              <button id="jumpToStartBtn" class="action-btn">⏪</button>
+              <button id="setStartBtn" class="action-btn set-point">[start</button>
+              <button id="setEndBtn" class="action-btn set-point">end]</button>
+            </div>
+
+            <div class="micro-row">
+              <button data-adjust="a" data-value="-0.3">A -0.3s</button>
+              <button data-adjust="a" data-value="0.3">A +0.3s</button>
+              <button data-adjust="b" data-value="-0.3">B -0.3s</button>
+              <button data-adjust="b" data-value="0.3">B +0.3s</button>
+
+              <div class="sentence-keys">
+                <span><kbd>A</kbd> câu trước</span>
+                <span><kbd>S</kbd> câu hiện tại</span>
+                <span><kbd>D</kbd> câu sau</span>
+                <span><kbd>Q</kbd> ẩn/hiện EN</span>
+                <span><kbd>W</kbd> ẩn/hiện VI</span>
+              </div>
+
+              <span id="loopHint" class="loop-hint">Chưa chọn loop.</span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
