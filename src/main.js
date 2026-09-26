@@ -1418,21 +1418,72 @@ function navigateSentence(direction) {
 
   const now = player.getCurrentTime();
   const base = findCueIndex(now);
+
   let targetIndex = base;
 
-  if (direction === "previous") targetIndex = Math.max(0, base - 1);
-  if (direction === "next") targetIndex = Math.min(transcriptCues.length - 1, base + 1);
+  if (direction === "previous") {
+    targetIndex = Math.max(0, base - 1);
+  }
 
-  const cue = transcriptCues[targetIndex];
+  if (direction === "next") {
+    targetIndex = Math.min(
+      transcriptCues.length - 1,
+      base + 1
+    );
+  }
 
-  // Quan trọng: KHÔNG bỏ activeLoopId.
-  // Vì vậy đang tạo loop mới, bấm A/S/D xong vẫn có thể bấm start/end.
-  suspendAutoLoop = true;
+  const loop = getActiveLoop();
+  const segments = getLoopSegments(loop);
+
+  let targetTime =
+    transcriptCues[targetIndex].start + 0.01;
+
+  // Nếu loop đã có START + END thì A/S/D
+  // không được phép thoát ra khỏi khung loop.
+  if (isLoopReady(loop) && segments.length) {
+    const segment =
+      segments.length === 2
+        ? (
+            segments[activeComboSegmentIndex] ||
+            segments[0]
+          )
+        : segments[0];
+
+    const minTime = segment.start + 0.05;
+    const maxTime = segment.end - 0.05;
+
+    // Không cho A tua trước START.
+    if (targetTime < minTime) {
+      targetTime = minTime;
+    }
+
+    // Không cho D tua vượt END.
+    if (targetTime > maxTime) {
+      targetTime = Math.max(
+        minTime,
+        maxTime
+      );
+    }
+  }
+
+  // Loop đã hoàn chỉnh thì sau A/S/D
+  // vẫn tiếp tục giữ auto-loop.
+  suspendAutoLoop = !isLoopReady(loop);
 
   currentCueIndex = -1;
-  player.seekTo(Math.max(0, cue.start + 0.01), true);
+
+  player.seekTo(
+    Math.max(0, targetTime),
+    true
+  );
+
   player.playVideo();
-  updateSubtitleForTime(cue.start, true);
+
+  updateSubtitleForTime(
+    targetTime,
+    true
+  );
+
   updateLoopUi();
   setError("");
 }
