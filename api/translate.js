@@ -10,17 +10,23 @@ function checkAccess(req, res) {
   const suppliedCode = String(req.headers["x-translate-access"] || "");
 
   if (!apiKey) {
-    res.status(500).json({ error: "Server chưa cấu hình GEMINI_API_KEY." });
+    res.status(500).json({
+      error: "Server chưa cấu hình GEMINI_API_KEY."
+    });
     return null;
   }
 
   if (!privateCode) {
-    res.status(500).json({ error: "Server chưa cấu hình TRANSLATE_ACCESS_CODE." });
+    res.status(500).json({
+      error: "Server chưa cấu hình TRANSLATE_ACCESS_CODE."
+    });
     return null;
   }
 
   if (!suppliedCode || suppliedCode !== privateCode) {
-    res.status(403).json({ error: "Mã dịch cá nhân không đúng." });
+    res.status(403).json({
+      error: "Mã dịch cá nhân không đúng."
+    });
     return null;
   }
 
@@ -47,15 +53,54 @@ function parseJson(text) {
 
   if (first >= 0 && last > first) {
     try {
-      return JSON.parse(raw.slice(first, last + 1));
+      return JSON.parse(
+        raw.slice(first, last + 1)
+      );
     } catch {}
   }
 
   return null;
 }
 
-async function callGemini(apiKey, prompt, maxOutputTokens) {
-  const response = await fetch(
+async function fetchWithTimeout(
+  url,
+  options = {},
+  timeoutMs = 15000
+) {
+  const controller = new AbortController();
+
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error(
+        "Gemini phản hồi quá lâu. Đợi vài giây rồi thử lại."
+      );
+
+      timeoutError.status = 504;
+
+      throw timeoutError;
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callGemini(
+  apiKey,
+  prompt,
+  maxOutputTokens
+) {
+  const response = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
     {
       method: "POST",
@@ -75,16 +120,22 @@ async function callGemini(apiKey, prompt, maxOutputTokens) {
           temperature: 0.2
         }
       })
-    }
+    },
+    15000
   );
 
-  const data = await response.json().catch(() => ({}));
+  const data = await response
+    .json()
+    .catch(() => ({}));
 
   if (!response.ok) {
     const error = new Error(
-      data?.error?.message || `Gemini HTTP ${response.status}`
+      data?.error?.message ||
+      `Gemini HTTP ${response.status}`
     );
+
     error.status = response.status;
+
     throw error;
   }
 
@@ -94,14 +145,18 @@ async function callGemini(apiKey, prompt, maxOutputTokens) {
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Method not allowed." });
+
+    return res.status(405).json({
+      error: "Method not allowed."
+    });
   }
 
   const apiKey = checkAccess(req, res);
+
   if (!apiKey) return;
 
   try {
-    // ===== BATCH MODE =====
+    // ===== DỊCH THEO BATCH 12 CÂU =====
     const batch = Array.isArray(req.body?.items)
       ? req.body.items
           .map(item => clean(item?.text))
@@ -122,19 +177,26 @@ export default async function handler(req, res) {
         `SUBTITLES: ${JSON.stringify(batch)}`
       ].join("\n");
 
-      const raw = await callGemini(apiKey, prompt, 1800);
+      const raw = await callGemini(
+        apiKey,
+        prompt,
+        1800
+      );
+
       const parsed = parseJson(raw);
 
-      const translations = Array.isArray(parsed?.translations)
-        ? parsed.translations.map(clean)
-        : [];
+      const translations =
+        Array.isArray(parsed?.translations)
+          ? parsed.translations.map(clean)
+          : [];
 
       if (
         translations.length !== batch.length ||
         translations.some(item => !item)
       ) {
         return res.status(502).json({
-          error: "Gemini trả về batch dịch không đủ số câu."
+          error:
+            "Gemini trả về batch dịch không đủ số câu."
         });
       }
 
@@ -144,7 +206,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ===== SINGLE MODE CŨ =====
+    // ===== DỊCH 1 CÂU =====
     const text = clean(req.body?.text);
     const previous = clean(req.body?.previous);
     const next = clean(req.body?.next);
@@ -165,14 +227,22 @@ export default async function handler(req, res) {
       `CÂU SAU: ${next || "(không có)"}`
     ].join("\n");
 
-    const raw = await callGemini(apiKey, prompt, 240);
+    const raw = await callGemini(
+      apiKey,
+      prompt,
+      240
+    );
+
     const parsed = parseJson(raw);
 
-    const translation = clean(parsed?.translation);
+    const translation = clean(
+      parsed?.translation
+    );
 
     if (!translation) {
       return res.status(502).json({
-        error: "Gemini trả về bản dịch rỗng."
+        error:
+          "Gemini trả về bản dịch rỗng."
       });
     }
 
@@ -180,9 +250,14 @@ export default async function handler(req, res) {
       translation,
       model: MODEL
     });
+
   } catch (error) {
-    return res.status(error?.status || 502).json({
-      error: error?.message || "Không gọi được Gemini API."
-    });
+    return res
+      .status(error?.status || 502)
+      .json({
+        error:
+          error?.message ||
+          "Không gọi được Gemini API."
+      });
   }
 }
