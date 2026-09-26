@@ -1236,19 +1236,25 @@ function saveStoredTranslation(key, value) {
 async function translateCue(cue, cueIndex) {
   const key = translationCacheKey(cue);
 
+  // Có trong RAM cache
   if (translationMemory.has(key)) {
     if (currentCueIndex === cueIndex) {
-      els.subtitleVietnamese.textContent = translationMemory.get(key);
+      els.subtitleVietnamese.textContent =
+        translationMemory.get(key);
     }
     return;
   }
 
+  // Có trong localStorage
   const stored = loadStoredTranslation(key);
+
   if (stored) {
     translationMemory.set(key, stored);
+
     if (currentCueIndex === cueIndex) {
       els.subtitleVietnamese.textContent = stored;
     }
+
     return;
   }
 
@@ -1256,61 +1262,140 @@ async function translateCue(cue, cueIndex) {
 
   if (!accessCode) {
     if (currentCueIndex === cueIndex) {
-      els.subtitleVietnamese.textContent = "Chưa bật dịch cá nhân.";
+      els.subtitleVietnamese.textContent =
+        "Chưa bật dịch cá nhân.";
     }
     return;
   }
 
-  els.subtitleVietnamese.textContent = "Đang dịch...";
+  // Chia transcript thành từng cụm cố định 12 câu.
+  // Các câu trong cùng cụm sẽ dùng chung 1 request Gemini.
+  const BATCH_SIZE = 12;
+  const batchStart =
+    Math.floor(cueIndex / BATCH_SIZE) * BATCH_SIZE;
 
-  const previous = transcriptCues[cueIndex - 1]?.text || "";
-  const next = transcriptCues[cueIndex + 1]?.text || "";
+  const batchEnd = Math.min(
+    transcriptCues.length,
+    batchStart + BATCH_SIZE
+  );
 
-  try {
-    const response = await fetch("/api/translate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-translate-access": accessCode
-      },
-      body: JSON.stringify({
-        text: cue.text,
-        previous,
-        next
-      })
-    });
+  const batchKey =
+    `${currentVideoId}:${batchStart}:${batchEnd}`;
 
-    const data = await response.json().catch(() => ({}));
+  // Map promise dùng chung để tránh 12 câu gọi 12 request cùng lúc.
+  if (!translateCue.batchPromises) {
+    translateCue.batchPromises = new Map();
+  }
 
-    if (!response.ok) {
-      if (response.status === 403) {
-        forgetTranslateAccessCode();
-        throw new Error("Mã dịch sai. Câu tiếp theo web sẽ hỏi lại.");
+  const batchPromises = translateCue.batchPromises;
+
+  // Nếu batch chưa được gọi thì gọi đúng 1 lần.
+  if (!batchPromises.has(batchKey)) {
+    const promise = (async () => {
+      const batchCues =
+        transcriptCues.slice(batchStart, batchEnd);
+
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-translate-access": accessCode
+        },
+        body: JSON.stringify({
+          items: batchCues.map(item => ({
+            text: item.text
+          }))
+        })
+      });
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          forgetTranslateAccessCode();
+          throw new Error(
+            "Mã dịch sai. Web sẽ hỏi lại."
+          );
+        }
+
+        if (response.status === 429) {
+          throw new Error(
+            "Gemini đang giới hạn lượt dịch. Chờ một chút rồi thử lại."
+          );
+        }
+
+        throw new Error(
+          data?.error || "Không dịch được phụ đề."
+        );
       }
 
-      throw new Error(data?.error || "Không dịch được câu này.");
-    }
+      const translations =
+        Array.isArray(data?.translations)
+          ? data.translations
+          : [];
 
-    const translated = String(data?.translation || "").trim();
+      if (translations.length !== batchCues.length) {
+        throw new Error(
+          "Gemini trả về thiếu câu dịch."
+        );
+      }
 
-    if (!translated) {
-      throw new Error("AI trả về bản dịch rỗng.");
-    }
+      // Lưu toàn bộ 12 câu vào cache.
+      batchCues.forEach((item, index) => {
+        const translated = String(
+          translations[index] || ""
+        ).trim();
 
-    translationMemory.set(key, translated);
-    saveStoredTranslation(key, translated);
+        if (!translated) return;
+
+        const itemKey = translationCacheKey(item);
+
+        translationMemory.set(
+          itemKey,
+          translated
+        );
+
+        saveStoredTranslation(
+          itemKey,
+          translated
+        );
+      });
+    })();
+
+    batchPromises.set(batchKey, promise);
+
+    promise.finally(() => {
+      batchPromises.delete(batchKey);
+    });
+  }
+
+  if (currentCueIndex === cueIndex) {
+    els.subtitleVietnamese.textContent =
+      "Đang dịch...";
+  }
+
+  try {
+    await batchPromises.get(batchKey);
+
+    const translated =
+      translationMemory.get(key) ||
+      loadStoredTranslation(key);
 
     if (currentCueIndex === cueIndex) {
-      els.subtitleVietnamese.textContent = translated;
+      els.subtitleVietnamese.textContent =
+        translated ||
+        "Không dịch được câu này.";
     }
   } catch (error) {
     if (currentCueIndex === cueIndex) {
       els.subtitleVietnamese.textContent =
-        error?.message || "Không dịch được câu này.";
+        error?.message ||
+        "Không dịch được câu này.";
     }
   }
 }
-
 function updateSubtitleForTime(time, force = false) {
   if (!transcriptCues.length) return;
 
