@@ -621,89 +621,159 @@ function renderLoops() {
   els.savedLoops.innerHTML = "";
 
   if (!loops.length) {
-    els.savedLoops.innerHTML = '<div class="empty">Nhấn dấu + để tạo loop mới.</div>';
+    els.savedLoops.innerHTML =
+      '<div class="empty">Nhấn dấu + để tạo loop mới.</div>';
     return;
   }
 
   loops.forEach((loop, index) => {
     const card = document.createElement("div");
     const active = loop.id === activeLoopId;
-    const selectedIndex = Array.from(combineSelection).indexOf(loop.id);
-    const selectedForCombine = selectedIndex >= 0;
+
+    const selectedIndex =
+      Array.from(combineSelection).indexOf(loop.id);
+
+    const selectedForCombine =
+      selectedIndex >= 0;
 
     card.className =
       `loop-card${active ? " active" : ""}${selectedForCombine ? " combine-selected" : ""}`;
 
+    card.dataset.action = "select";
+    card.dataset.id = loop.id;
+
     let timeText = "start ? - end ?";
+
     if (isCombo(loop)) {
       const seg = loop.segments || [];
-      timeText = seg.length === 2
-        ? `${formatLoopTime(seg[0].start)}-${formatLoopTime(seg[0].end)} + ${formatLoopTime(seg[1].start)}-${formatLoopTime(seg[1].end)}`
-        : "combo lỗi";
+
+      timeText =
+        seg.length === 2
+          ? `${formatLoopTime(seg[0].start)}-${formatLoopTime(seg[0].end)} + ${formatLoopTime(seg[1].start)}-${formatLoopTime(seg[1].end)}`
+          : "combo lỗi";
+
     } else {
-      const hasStart = Number.isFinite(loop.start);
-      const hasEnd = Number.isFinite(loop.end);
+      const hasStart =
+        Number.isFinite(loop.start);
+
+      const hasEnd =
+        Number.isFinite(loop.end);
 
       if (hasStart && hasEnd) {
-        timeText = `${formatLoopTime(loop.start)} - ${formatLoopTime(loop.end)}`;
+        timeText =
+          `${formatLoopTime(loop.start)} - ${formatLoopTime(loop.end)}`;
+
       } else if (hasStart) {
         let liveEnd = "end ?";
 
-        if (active && player && typeof player.getCurrentTime === "function") {
+        if (
+          active &&
+          player &&
+          typeof player.getCurrentTime === "function"
+        ) {
           try {
-            liveEnd = formatLoopTime(player.getCurrentTime());
+            liveEnd =
+              formatLoopTime(
+                player.getCurrentTime()
+              );
           } catch {}
         }
 
-        timeText = `${formatLoopTime(loop.start)} - <span class="live-sidebar-end" data-live-loop-id="${loop.id}">${liveEnd}</span>`;
+        timeText =
+          `${formatLoopTime(loop.start)} - <span class="live-sidebar-end" data-live-loop-id="${loop.id}">${liveEnd}</span>`;
+
       } else if (hasEnd) {
         let liveStart = "start ?";
 
-        if (active && player && typeof player.getCurrentTime === "function") {
+        if (
+          active &&
+          player &&
+          typeof player.getCurrentTime === "function"
+        ) {
           try {
-            liveStart = formatLoopTime(player.getCurrentTime());
+            liveStart =
+              formatLoopTime(
+                player.getCurrentTime()
+              );
           } catch {}
         }
 
         timeText = active
           ? `<span class="live-sidebar-start" data-live-loop-id="${loop.id}">${liveStart}</span> - ${formatLoopTime(loop.end)}`
           : `start ? - ${formatLoopTime(loop.end)}`;
+
       } else if (active) {
         let liveStart = "start ?";
 
-        if (player && typeof player.getCurrentTime === "function") {
+        if (
+          player &&
+          typeof player.getCurrentTime === "function"
+        ) {
           try {
-            liveStart = formatLoopTime(player.getCurrentTime());
+            liveStart =
+              formatLoopTime(
+                player.getCurrentTime()
+              );
           } catch {}
         }
 
-        timeText = `<span class="live-sidebar-start" data-live-loop-id="${loop.id}">${liveStart}</span> - end ?`;
+        timeText =
+          `<span class="live-sidebar-start" data-live-loop-id="${loop.id}">${liveStart}</span> - end ?`;
       }
     }
 
-    const typeTag = isCombo(loop) ? "COMBINE" : active ? "ACTIVE" : "LOOP";
+    const typeTag =
+      isCombo(loop)
+        ? "COMBINE"
+        : active
+          ? "ACTIVE"
+          : "LOOP";
 
-    const combineButton = !isCombo(loop) && isSingleLoopReady(loop)
-      ? `<button class="loop-combine${selectedForCombine ? " selected" : ""}"
-          data-action="combine"
-          data-id="${loop.id}"
-          title="Chọn loop này để ghép">${selectedForCombine ? selectedIndex + 1 : "GHÉP"}</button>`
-      : "";
+    const combineButton =
+      !isCombo(loop) &&
+      isSingleLoopReady(loop)
+        ? `
+          <button
+            class="loop-combine${selectedForCombine ? " selected" : ""}"
+            data-action="combine"
+            data-id="${loop.id}"
+            title="Chọn loop này để ghép"
+          >
+            ${selectedForCombine ? selectedIndex + 1 : "GHÉP"}
+          </button>
+        `
+        : "";
 
     card.innerHTML = `
-      <div class="loop-card-click" data-action="select" data-id="${loop.id}"></div>
       <div class="loop-top">
-        <span class="loop-name">${loop.name || `Loop ${index + 1}`}</span>
-        <span class="loop-tag">${typeTag}</span>
+        <span class="loop-name">
+          ${loop.name || `Loop ${index + 1}`}
+        </span>
+
+        <span class="loop-tag">
+          ${typeTag}
+        </span>
       </div>
-      <div class="loop-time">${timeText}</div>
+
+      <div class="loop-time">
+        ${timeText}
+      </div>
+
       ${combineButton}
-      <button class="loop-delete" data-action="delete" data-id="${loop.id}" title="Xóa loop">×</button>
+
+      <button
+        class="loop-delete"
+        data-action="delete"
+        data-id="${loop.id}"
+        title="Xóa loop"
+      >
+        ×
+      </button>
     `;
+
     els.savedLoops.appendChild(card);
   });
 }
-
 function updateLiveSidebarPreview(currentTime) {
   const loop = getActiveLoop();
 
