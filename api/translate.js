@@ -27,6 +27,70 @@ function checkAccess(req, res) {
   return apiKey;
 }
 
+function getModelText(data) {
+  return String(
+    data?.candidates?.[0]?.content?.parts
+      ?.map(part => part?.text || "")
+      .join("") || ""
+  ).trim();
+}
+
+function parseJson(text) {
+  const raw = String(text || "").trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {}
+
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+
+  if (first >= 0 && last > first) {
+    try {
+      return JSON.parse(raw.slice(first, last + 1));
+    } catch {}
+  }
+
+  return null;
+}
+
+async function callGemini(apiKey, prompt, maxOutputTokens) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig: {
+          maxOutputTokens,
+          temperature: 0.2
+        }
+      })
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.error?.message || `Gemini HTTP ${response.status}`
+    );
+    error.status = response.status;
+    throw error;
+  }
+
+  return getModelText(data);
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -36,70 +100,88 @@ export default async function handler(req, res) {
   const apiKey = checkAccess(req, res);
   if (!apiKey) return;
 
-  const text = clean(req.body?.text);
-  const previous = clean(req.body?.previous);
-  const next = clean(req.body?.next);
-
-  if (!text) {
-    return res.status(400).json({ error: "Thiếu câu cần dịch." });
-  }
-
-  const prompt = [
-    "Bạn là biên dịch viên phụ đề tiếng Anh sang tiếng Việt.",
-    "Dịch tự nhiên theo đúng ngữ cảnh hội thoại, không dịch từng chữ.",
-    "Hiểu thành ngữ, tiếng lóng, đại từ, chủ ngữ bị lược và sắc thái người nói.",
-    "Câu trước và câu sau CHỈ dùng để hiểu ngữ cảnh.",
-    "CHỈ dịch CÂU HIỆN TẠI.",
-    "Đầu ra CHỈ là bản dịch tiếng Việt, không giải thích, không thêm nhãn.",
-    "",
-    `CÂU TRƯỚC: ${previous || "(không có)"}`,
-    `CÂU HIỆN TẠI: ${text}`,
-    `CÂU SAU: ${next || "(không có)"}`
-  ].join("\n");
-
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey
-        },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: 180,
-            temperature: 0.2
-          }
-        })
+    // ===== BATCH MODE =====
+    const batch = Array.isArray(req.body?.items)
+      ? req.body.items
+          .map(item => clean(item?.text))
+          .filter(Boolean)
+          .slice(0, 12)
+      : [];
+
+    if (batch.length) {
+      const prompt = [
+        "Bạn là biên dịch viên phụ đề tiếng Anh sang tiếng Việt.",
+        "Dịch tự nhiên theo đúng ngữ cảnh hội thoại, không dịch từng chữ.",
+        "Các câu dưới đây nằm liên tiếp trong cùng một video.",
+        "Hãy dùng toàn bộ nhóm câu để hiểu ngữ cảnh.",
+        "Giữ đúng số lượng câu và đúng thứ tự.",
+        'Chỉ trả JSON dạng: {"translations":["câu 1","câu 2"]}',
+        "Không giải thích, không markdown.",
+        "",
+        `SUBTITLES: ${JSON.stringify(batch)}`
+      ].join("\n");
+
+      const raw = await callGemini(apiKey, prompt, 1800);
+      const parsed = parseJson(raw);
+
+      const translations = Array.isArray(parsed?.translations)
+        ? parsed.translations.map(clean)
+        : [];
+
+      if (
+        translations.length !== batch.length ||
+        translations.some(item => !item)
+      ) {
+        return res.status(502).json({
+          error: "Gemini trả về batch dịch không đủ số câu."
+        });
       }
-    );
 
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: data?.error?.message || `Gemini HTTP ${response.status}`
+      return res.status(200).json({
+        translations,
+        model: MODEL
       });
     }
 
-    const translation = clean(
-      data?.candidates?.[0]?.content?.parts
-        ?.map(part => part?.text || "")
-        .join("")
-    )
-      .replace(/^["“]|["”]$/g, "")
-      .replace(/^(Bản dịch|Dịch)\s*:\s*/i, "")
-      .trim();
+    // ===== SINGLE MODE CŨ =====
+    const text = clean(req.body?.text);
+    const previous = clean(req.body?.previous);
+    const next = clean(req.body?.next);
 
-    if (!translation) {
-      return res.status(502).json({ error: "Gemini trả về bản dịch rỗng." });
+    if (!text) {
+      return res.status(400).json({
+        error: "Thiếu câu cần dịch."
+      });
     }
 
-    return res.status(200).json({ translation, model: MODEL });
+    const prompt = [
+      "Bạn là biên dịch viên phụ đề tiếng Anh sang tiếng Việt.",
+      "Dịch tự nhiên theo đúng ngữ cảnh hội thoại.",
+      'Chỉ trả JSON dạng: {"translation":"..."}',
+      "",
+      `CÂU TRƯỚC: ${previous || "(không có)"}`,
+      `CÂU HIỆN TẠI: ${text}`,
+      `CÂU SAU: ${next || "(không có)"}`
+    ].join("\n");
+
+    const raw = await callGemini(apiKey, prompt, 240);
+    const parsed = parseJson(raw);
+
+    const translation = clean(parsed?.translation);
+
+    if (!translation) {
+      return res.status(502).json({
+        error: "Gemini trả về bản dịch rỗng."
+      });
+    }
+
+    return res.status(200).json({
+      translation,
+      model: MODEL
+    });
   } catch (error) {
-    return res.status(502).json({
+    return res.status(error?.status || 502).json({
       error: error?.message || "Không gọi được Gemini API."
     });
   }
