@@ -2,115 +2,1217 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+
     <title>YouTube Loop V5 Study</title>
+
+    <style>
+      /* =========================================
+         INTRO PULL LAMP
+         Chỉ trang trí màn hình mở đầu.
+         Không ảnh hưởng code app chính.
+      ========================================= */
+
+      #app.intro-locked {
+        opacity: 0;
+        pointer-events: none;
+        transform: scale(0.985);
+      }
+
+      #app.intro-unlocked {
+        opacity: 1;
+        pointer-events: auto;
+        transform: scale(1);
+        transition:
+          opacity 0.8s ease,
+          transform 0.8s ease;
+      }
+
+      #lampIntro {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+
+        overflow: hidden;
+
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+
+        background:
+          radial-gradient(
+            circle at 50% 24%,
+            rgba(255, 228, 171, 0.035),
+            transparent 23%
+          ),
+          linear-gradient(
+            180deg,
+            #090709 0%,
+            #110c10 52%,
+            #080607 100%
+          );
+
+        opacity: 1;
+
+        transition:
+          opacity 0.8s ease,
+          visibility 0.8s ease;
+      }
+
+      #lampIntro.intro-hide {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .lamp-intro-noise {
+        position: absolute;
+        inset: 0;
+
+        pointer-events: none;
+
+        opacity: 0.15;
+
+        background-image:
+          radial-gradient(
+            rgba(255, 255, 255, 0.09) 0.6px,
+            transparent 0.6px
+          );
+
+        background-size: 7px 7px;
+      }
+
+      .lamp-room-light {
+        position: absolute;
+
+        top: -120px;
+        left: 50%;
+
+        width: 720px;
+        height: 720px;
+
+        transform:
+          translateX(-50%)
+          scale(0.55);
+
+        border-radius: 50%;
+
+        background:
+          radial-gradient(
+            circle,
+            rgba(255, 233, 174, 0.52) 0%,
+            rgba(255, 215, 120, 0.18) 31%,
+            rgba(255, 204, 100, 0.055) 48%,
+            transparent 69%
+          );
+
+        filter: blur(22px);
+
+        opacity: 0;
+
+        pointer-events: none;
+
+        transition:
+          opacity 0.55s ease,
+          transform 0.8s
+            cubic-bezier(.2,.85,.3,1);
+      }
+
+      #lampIntro.lamp-on
+        .lamp-room-light {
+        opacity: 1;
+
+        transform:
+          translateX(-50%)
+          scale(1);
+      }
+
+      .lamp-scene {
+        position: relative;
+
+        width: min(94vw, 620px);
+        height: 100vh;
+
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+
+        user-select: none;
+      }
+
+      /* Dây điện bóng đèn */
+      .lamp-main-wire {
+        width: 4px;
+        height: 105px;
+
+        flex: 0 0 auto;
+
+        background:
+          linear-gradient(
+            90deg,
+            #393137,
+            #7d7078,
+            #393137
+          );
+
+        box-shadow:
+          0 0 8px
+          rgba(0, 0, 0, 0.7);
+      }
+
+      .lamp-holder {
+        position: relative;
+
+        z-index: 5;
+
+        width: 58px;
+        height: 43px;
+
+        border-radius:
+          8px 8px 13px 13px;
+
+        background:
+          linear-gradient(
+            90deg,
+            #393337 0%,
+            #756970 48%,
+            #393337 100%
+          );
+
+        box-shadow:
+          inset 0 1px 2px
+            rgba(255,255,255,.17),
+          0 7px 18px
+            rgba(0,0,0,.45);
+      }
+
+      .lamp-holder::before,
+      .lamp-holder::after {
+        content: "";
+
+        position: absolute;
+
+        left: 7px;
+        right: 7px;
+
+        height: 2px;
+
+        background:
+          rgba(0,0,0,.36);
+      }
+
+      .lamp-holder::before {
+        top: 13px;
+      }
+
+      .lamp-holder::after {
+        top: 23px;
+      }
+
+      /* Bóng đèn */
+      .lamp-bulb {
+        position: relative;
+
+        z-index: 4;
+
+        width: 94px;
+        height: 118px;
+
+        margin-top: -7px;
+
+        border-radius:
+          50% 50% 45% 45% /
+          56% 56% 44% 44%;
+
+        background:
+          radial-gradient(
+            circle at 42% 28%,
+            rgba(255,255,255,.78),
+            rgba(218,210,199,.48) 23%,
+            rgba(107,100,98,.31) 57%,
+            rgba(40,35,37,.72) 100%
+          );
+
+        border:
+          1px solid
+          rgba(255,255,255,.19);
+
+        box-shadow:
+          inset 0 4px 12px
+            rgba(255,255,255,.13),
+          inset 0 -10px 22px
+            rgba(0,0,0,.35),
+          0 15px 28px
+            rgba(0,0,0,.38);
+
+        transition:
+          background 0.35s ease,
+          box-shadow 0.45s ease,
+          transform 0.45s ease;
+      }
+
+      .lamp-bulb::after {
+        content: "";
+
+        position: absolute;
+
+        left: 50%;
+        bottom: 14px;
+
+        width: 34px;
+        height: 38px;
+
+        transform:
+          translateX(-50%);
+
+        border-left:
+          2px solid
+          rgba(81,68,56,.42);
+
+        border-right:
+          2px solid
+          rgba(81,68,56,.42);
+
+        border-radius: 50%;
+      }
+
+      #lampIntro.lamp-on
+        .lamp-bulb {
+        transform: scale(1.025);
+
+        background:
+          radial-gradient(
+            circle at 42% 26%,
+            #ffffff 0%,
+            #fffbd9 24%,
+            #ffeaa3 55%,
+            #ffc95f 100%
+          );
+
+        box-shadow:
+          0 0 18px
+            rgba(255,242,187,.95),
+          0 0 52px
+            rgba(255,218,115,.70),
+          0 0 125px
+            rgba(255,200,83,.38),
+          inset 0 5px 13px
+            rgba(255,255,255,.78);
+      }
+
+      /* Dây kéo */
+      .pull-system {
+        position: absolute;
+
+        z-index: 10;
+
+        top: 127px;
+        left:
+          calc(50% + 82px);
+
+        width: 55px;
+
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+
+        touch-action: none;
+
+        cursor: grab;
+
+        transform: translateY(0);
+
+        will-change: transform;
+      }
+
+      .pull-system.dragging {
+        cursor: grabbing;
+      }
+
+      .pull-string {
+        width: 2px;
+        height: 195px;
+
+        background:
+          linear-gradient(
+            180deg,
+            #756a6f 0%,
+            #c9bdc1 100%
+          );
+
+        box-shadow:
+          1px 0 2px
+          rgba(0,0,0,.6);
+      }
+
+      .pull-handle {
+        position: relative;
+
+        width: 31px;
+        height: 41px;
+
+        margin-top: -1px;
+
+        border-radius:
+          48% 48% 52% 52%;
+
+        background:
+          radial-gradient(
+            circle at 36% 28%,
+            #fff0c3 0%,
+            #d2a75f 33%,
+            #8b6334 68%,
+            #51351e 100%
+          );
+
+        border:
+          1px solid
+          rgba(255,255,255,.2);
+
+        box-shadow:
+          inset 3px 3px 6px
+            rgba(255,255,255,.24),
+          inset -4px -5px 8px
+            rgba(58,34,16,.32),
+          0 8px 14px
+            rgba(0,0,0,.45);
+
+        transition:
+          box-shadow .2s ease;
+      }
+
+      .pull-handle::after {
+        content: "";
+
+        position: absolute;
+
+        top: 8px;
+        left: 9px;
+
+        width: 5px;
+        height: 11px;
+
+        border-radius: 99px;
+
+        background:
+          rgba(255,255,255,.25);
+
+        transform:
+          rotate(18deg);
+      }
+
+      .pull-system:hover
+        .pull-handle {
+        box-shadow:
+          inset 3px 3px 6px
+            rgba(255,255,255,.3),
+          inset -4px -5px 8px
+            rgba(58,34,16,.30),
+          0 8px 18px
+            rgba(0,0,0,.5),
+          0 0 16px
+            rgba(255,211,125,.12);
+      }
+
+      /* Chữ intro */
+      .lamp-intro-copy {
+        position: absolute;
+
+        top: 470px;
+        left: 50%;
+
+        width: 94vw;
+
+        transform:
+          translateX(-50%);
+
+        text-align: center;
+
+        pointer-events: none;
+
+        transition:
+          opacity .3s ease,
+          transform .45s ease;
+      }
+
+      .lamp-intro-title {
+        color:
+          rgba(255,248,243,.96);
+
+        font-family:
+          "Segoe UI",
+          system-ui,
+          sans-serif;
+
+        font-size:
+          clamp(25px, 3vw, 39px);
+
+        font-weight: 750;
+
+        letter-spacing:
+          .035em;
+
+        text-shadow:
+          0 5px 28px
+          rgba(0,0,0,.8);
+      }
+
+      .lamp-intro-hint {
+        margin-top: 13px;
+
+        color:
+          rgba(221,208,214,.69);
+
+        font-family:
+          "Segoe UI",
+          system-ui,
+          sans-serif;
+
+        font-size:
+          clamp(12px, 1.3vw, 15px);
+
+        letter-spacing:
+          .075em;
+      }
+
+      .lamp-arrow {
+        margin-top: 17px;
+
+        color:
+          rgba(255,224,162,.7);
+
+        font-size: 20px;
+
+        animation:
+          pullHint 1.45s
+          ease-in-out infinite;
+      }
+
+      @keyframes pullHint {
+        0%,
+        100% {
+          transform:
+            translateY(0);
+          opacity: .45;
+        }
+
+        50% {
+          transform:
+            translateY(9px);
+          opacity: 1;
+        }
+      }
+
+      #lampIntro.lamp-on
+        .lamp-intro-copy {
+        opacity: 0;
+
+        transform:
+          translateX(-50%)
+          translateY(18px);
+      }
+
+      .lamp-flash {
+        position: absolute;
+
+        inset: 0;
+
+        pointer-events: none;
+
+        background:
+          radial-gradient(
+            circle at 50% 27%,
+            rgba(255,244,201,.32),
+            transparent 43%
+          );
+
+        opacity: 0;
+
+        transition:
+          opacity .35s ease;
+      }
+
+      #lampIntro.lamp-on
+        .lamp-flash {
+        opacity: 1;
+      }
+
+      @media
+      (max-width: 640px) {
+        .lamp-main-wire {
+          height: 80px;
+        }
+
+        .pull-system {
+          top: 102px;
+
+          left:
+            calc(50% + 72px);
+        }
+
+        .pull-string {
+          height: 175px;
+        }
+
+        .lamp-intro-copy {
+          top: 420px;
+        }
+      }
+    </style>
   </head>
+
   <body>
-    <div id="app" class="app-shell">
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <div class="title-wrap">
-            <strong>Loops</strong>
-            <span id="videoShortTitle">No video</span>
-          </div>
-          <button id="addLoopBtn" class="add-loop-btn" title="Tạo loop mới">+</button>
+
+    <!-- =====================================
+         MÀN HÌNH INTRO ĐÈN DÂY KÉO
+    ====================================== -->
+    <div
+      id="lampIntro"
+      aria-label="Kéo dây đèn để bắt đầu"
+    >
+      <div class="lamp-intro-noise"></div>
+      <div class="lamp-room-light"></div>
+      <div class="lamp-flash"></div>
+
+      <div class="lamp-scene">
+
+        <div class="lamp-main-wire"></div>
+
+        <div class="lamp-holder"></div>
+
+        <div
+          id="introBulb"
+          class="lamp-bulb"
+        ></div>
+
+        <div
+          id="pullSystem"
+          class="pull-system"
+        >
+          <div class="pull-string"></div>
+          <div class="pull-handle"></div>
         </div>
 
-        <div class="url-box">
-          <input id="youtubeUrl" type="text" placeholder="Paste YouTube URL..." autocomplete="off" />
-          <button id="loadBtn">Load</button>
-        </div>
-        <p id="urlError" class="error"></p>
-
-        <div class="combine-toolbar">
-          <span id="combineCount">Ghép: 0/2</span>
-          <button id="createCombineBtn" disabled>Ghép 2</button>
-          <button id="clearCombineBtn" title="Bỏ chọn ghép">Hủy</button>
-        </div>
-
-        <div id="savedLoops" class="saved-loops">
-          <div class="empty">Chưa có loop nào.</div>
-        </div>
-      </aside>
-
-      <main class="main-stage">
-        <div class="player-shell" id="playerShell">
-          <div class="video-wrap">
-            <div id="player"></div>
-
-            <div id="subtitleBox" class="subtitle-box">
-              <div id="subtitleEnglish" class="subtitle-en">Phụ đề sẽ hiện ở đây.</div>
-              <div id="subtitleVietnamese" class="subtitle-vi">Bản dịch tiếng Việt sẽ nằm bên dưới.</div>
-            </div>
-
-            <div id="subtitleStatus" class="subtitle-status">Chưa tải phụ đề</div>
-
-            <aside id="vocabPanel" class="vocab-panel" aria-live="polite">
-              <div class="vocab-panel-head">
-                <span class="vocab-panel-title">TỪ VỰNG</span>
-                <span id="vocabLoopName" class="vocab-loop-name">Chưa chọn loop</span>
-              </div>
-              <div id="vocabList" class="vocab-list">
-                <div class="vocab-empty">Tạo loop để lấy từ mới.</div>
-              </div>
-            </aside>
+        <div class="lamp-intro-copy">
+          <div class="lamp-intro-title">
+            English Loop Studio
           </div>
 
-          <div class="controls-shell">
-            <div class="transport-row">
-              <button id="playPauseBtn" class="icon-btn" title="Play / Pause">▶</button>
-              <button id="muteBtn" class="icon-btn" title="Mute / Unmute">🔊</button>
+          <div class="lamp-intro-hint">
+            KÉO DÂY ĐÈN ĐỂ BẮT ĐẦU
+          </div>
 
-              <div id="currentTime" class="time-text">0:00</div>
-
-              <div class="timeline-wrap">
-                <div class="timeline-overlay">
-                  <div id="markerA" class="ab-marker a hidden"></div>
-                  <div id="markerB" class="ab-marker b hidden"></div>
-                  <div id="loopRegion" class="loop-region hidden"></div>
-                </div>
-                <input id="progressBar" class="progress-bar" type="range" min="0" max="1000" value="0" />
-              </div>
-
-              <div id="durationTime" class="time-text">0:00</div>
-
-              <div class="speed-stepper" title="Tốc độ video">
-                <button id="speedDownBtn" type="button">−</button>
-                <span id="speedValue">1.0x</span>
-                <button id="speedUpBtn" type="button">+</button>
-              </div>
-
-              <button id="fullscreenBtn" class="icon-btn" title="Fullscreen">⛶</button>
-            </div>
-
-            <div class="action-row">
-              <button id="seekBackBtn" class="action-btn">⏮</button>
-              <button id="jumpToStartBtn" class="action-btn">⏪</button>
-              <button id="setStartBtn" class="action-btn set-point">[start</button>
-              <button id="setEndBtn" class="action-btn set-point">end]</button>
-            </div>
-
-            <div class="micro-row">
-              <button data-adjust="a" data-value="-0.3">A -0.3s</button>
-              <button data-adjust="a" data-value="0.3">A +0.3s</button>
-              <button data-adjust="b" data-value="-0.3">B -0.3s</button>
-              <button data-adjust="b" data-value="0.3">B +0.3s</button>
-
-              <div class="sentence-keys">
-                <span><kbd>A</kbd> câu trước</span>
-                <span><kbd>S</kbd> câu hiện tại</span>
-                <span><kbd>D</kbd> câu sau</span>
-                <span><kbd>Q</kbd> ẩn/hiện EN</span>
-                <span><kbd>W</kbd> ẩn/hiện VI</span>
-              </div>
-
-              <span id="loopHint" class="loop-hint">Chưa chọn loop.</span>
-            </div>
+          <div class="lamp-arrow">
+            ↓
           </div>
         </div>
-      </main>
+
+      </div>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
+
+    <!-- =====================================
+         APP CŨ — GIỮ NGUYÊN
+    ====================================== -->
+    <div
+      id="app"
+      class="app-shell intro-locked"
+    >
+
+      <aside class="sidebar">
+
+        <div class="sidebar-header">
+
+          <div class="title-wrap">
+            <strong>Loops</strong>
+
+            <span id="videoShortTitle">
+              No video
+            </span>
+          </div>
+
+          <button
+            id="addLoopBtn"
+            class="add-loop-btn"
+            title="Tạo loop mới"
+          >
+            +
+          </button>
+
+        </div>
+
+
+        <div class="url-box">
+
+          <input
+            id="youtubeUrl"
+            type="text"
+            placeholder="Paste YouTube URL..."
+            autocomplete="off"
+          />
+
+          <button id="loadBtn">
+            Load
+          </button>
+
+        </div>
+
+
+        <p
+          id="urlError"
+          class="error"
+        ></p>
+
+
+        <div class="combine-toolbar">
+
+          <span id="combineCount">
+            Ghép: 0/2
+          </span>
+
+          <button
+            id="createCombineBtn"
+            disabled
+          >
+            Ghép 2
+          </button>
+
+          <button
+            id="clearCombineBtn"
+            title="Bỏ chọn ghép"
+          >
+            Hủy
+          </button>
+
+        </div>
+
+
+        <div
+          id="savedLoops"
+          class="saved-loops"
+        >
+          <div class="empty">
+            Chưa có loop nào.
+          </div>
+        </div>
+
+      </aside>
+
+
+      <main class="main-stage">
+
+        <div
+          class="player-shell"
+          id="playerShell"
+        >
+
+          <div class="video-wrap">
+
+            <div id="player"></div>
+
+
+            <div
+              id="subtitleBox"
+              class="subtitle-box"
+            >
+
+              <div
+                id="subtitleEnglish"
+                class="subtitle-en"
+              >
+                Phụ đề sẽ hiện ở đây.
+              </div>
+
+              <div
+                id="subtitleVietnamese"
+                class="subtitle-vi"
+              >
+                Bản dịch tiếng Việt sẽ nằm bên dưới.
+              </div>
+
+            </div>
+
+
+            <div
+              id="subtitleStatus"
+              class="subtitle-status"
+            >
+              Chưa tải phụ đề
+            </div>
+
+
+            <aside
+              id="vocabPanel"
+              class="vocab-panel"
+              aria-live="polite"
+            >
+
+              <div class="vocab-panel-head">
+
+                <span class="vocab-panel-title">
+                  TỪ VỰNG
+                </span>
+
+                <span
+                  id="vocabLoopName"
+                  class="vocab-loop-name"
+                >
+                  Chưa chọn loop
+                </span>
+
+              </div>
+
+
+              <div
+                id="vocabList"
+                class="vocab-list"
+              >
+
+                <div class="vocab-empty">
+                  Tạo loop để lấy từ mới.
+                </div>
+
+              </div>
+
+            </aside>
+
+          </div>
+
+
+          <div class="controls-shell">
+
+            <div class="transport-row">
+
+              <button
+                id="playPauseBtn"
+                class="icon-btn"
+                title="Play / Pause"
+              >
+                ▶
+              </button>
+
+
+              <button
+                id="muteBtn"
+                class="icon-btn"
+                title="Mute / Unmute"
+              >
+                🔊
+              </button>
+
+
+              <div
+                id="currentTime"
+                class="time-text"
+              >
+                0:00
+              </div>
+
+
+              <div class="timeline-wrap">
+
+                <div class="timeline-overlay">
+
+                  <div
+                    id="markerA"
+                    class="ab-marker a hidden"
+                  ></div>
+
+                  <div
+                    id="markerB"
+                    class="ab-marker b hidden"
+                  ></div>
+
+                  <div
+                    id="loopRegion"
+                    class="loop-region hidden"
+                  ></div>
+
+                </div>
+
+
+                <input
+                  id="progressBar"
+                  class="progress-bar"
+                  type="range"
+                  min="0"
+                  max="1000"
+                  value="0"
+                />
+
+              </div>
+
+
+              <div
+                id="durationTime"
+                class="time-text"
+              >
+                0:00
+              </div>
+
+
+              <div
+                class="speed-stepper"
+                title="Tốc độ video"
+              >
+
+                <button
+                  id="speedDownBtn"
+                  type="button"
+                >
+                  −
+                </button>
+
+                <span id="speedValue">
+                  1.0x
+                </span>
+
+                <button
+                  id="speedUpBtn"
+                  type="button"
+                >
+                  +
+                </button>
+
+              </div>
+
+
+              <button
+                id="fullscreenBtn"
+                class="icon-btn"
+                title="Fullscreen"
+              >
+                ⛶
+              </button>
+
+            </div>
+
+
+            <div class="action-row">
+
+              <button
+                id="seekBackBtn"
+                class="action-btn"
+              >
+                ⏮
+              </button>
+
+              <button
+                id="jumpToStartBtn"
+                class="action-btn"
+              >
+                ⏪
+              </button>
+
+              <button
+                id="setStartBtn"
+                class="action-btn set-point"
+              >
+                [start
+              </button>
+
+              <button
+                id="setEndBtn"
+                class="action-btn set-point"
+              >
+                end]
+              </button>
+
+            </div>
+
+
+            <div class="micro-row">
+
+              <button
+                data-adjust="a"
+                data-value="-0.3"
+              >
+                A -0.3s
+              </button>
+
+              <button
+                data-adjust="a"
+                data-value="0.3"
+              >
+                A +0.3s
+              </button>
+
+              <button
+                data-adjust="b"
+                data-value="-0.3"
+              >
+                B -0.3s
+              </button>
+
+              <button
+                data-adjust="b"
+                data-value="0.3"
+              >
+                B +0.3s
+              </button>
+
+
+              <div class="sentence-keys">
+
+                <span>
+                  <kbd>A</kbd>
+                  câu trước
+                </span>
+
+                <span>
+                  <kbd>S</kbd>
+                  câu hiện tại
+                </span>
+
+                <span>
+                  <kbd>D</kbd>
+                  câu sau
+                </span>
+
+                <span>
+                  <kbd>Q</kbd>
+                  ẩn/hiện EN
+                </span>
+
+                <span>
+                  <kbd>W</kbd>
+                  ẩn/hiện VI
+                </span>
+
+              </div>
+
+
+              <span
+                id="loopHint"
+                class="loop-hint"
+              >
+                Chưa chọn loop.
+              </span>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </main>
+
+    </div>
+
+
+    <!-- APP HOÀN HẢO HIỆN TẠI -->
+    <script
+      type="module"
+      src="/src/main.js"
+    ></script>
+
+
+    <!-- =====================================
+         LOGIC KÉO DÂY ĐÈN
+    ====================================== -->
+    <script>
+      (() => {
+        const intro =
+          document.getElementById(
+            "lampIntro"
+          );
+
+        const pull =
+          document.getElementById(
+            "pullSystem"
+          );
+
+        const app =
+          document.getElementById(
+            "app"
+          );
+
+        if (
+          !intro ||
+          !pull ||
+          !app
+        ) {
+          return;
+        }
+
+
+        let dragging = false;
+        let startY = 0;
+        let pullDistance = 0;
+        let activated = false;
+
+        const MAX_PULL = 115;
+        const TURN_ON_AT = 72;
+
+
+        function setPull(distance) {
+          pullDistance =
+            Math.max(
+              0,
+              Math.min(
+                MAX_PULL,
+                distance
+              )
+            );
+
+          pull.style.transform =
+            `translateY(${pullDistance}px)`;
+        }
+
+
+        function resetPull() {
+          pull.style.transition =
+            "transform 0.38s cubic-bezier(.2,.8,.25,1)";
+
+          setPull(0);
+
+          window.setTimeout(() => {
+            pull.style.transition = "";
+          }, 400);
+        }
+
+
+        function turnLightOn() {
+          if (activated) return;
+
+          activated = true;
+          dragging = false;
+
+          pull.classList.remove(
+            "dragging"
+          );
+
+          pull.style.transition =
+            "transform 0.22s ease";
+
+          setPull(88);
+
+          intro.classList.add(
+            "lamp-on"
+          );
+
+
+          window.setTimeout(() => {
+            app.classList.remove(
+              "intro-locked"
+            );
+
+            app.classList.add(
+              "intro-unlocked"
+            );
+          }, 330);
+
+
+          window.setTimeout(() => {
+            intro.classList.add(
+              "intro-hide"
+            );
+          }, 780);
+
+
+          window.setTimeout(() => {
+            intro.remove();
+          }, 1700);
+        }
+
+
+        pull.addEventListener(
+          "pointerdown",
+          (event) => {
+            if (activated) return;
+
+            dragging = true;
+
+            startY =
+              event.clientY -
+              pullDistance;
+
+            pull.classList.add(
+              "dragging"
+            );
+
+            pull.style.transition =
+              "none";
+
+            try {
+              pull.setPointerCapture(
+                event.pointerId
+              );
+            } catch {}
+
+            event.preventDefault();
+          }
+        );
+
+
+        pull.addEventListener(
+          "pointermove",
+          (event) => {
+            if (
+              !dragging ||
+              activated
+            ) {
+              return;
+            }
+
+            const distance =
+              event.clientY -
+              startY;
+
+            setPull(distance);
+
+            if (
+              pullDistance >=
+              TURN_ON_AT
+            ) {
+              turnLightOn();
+            }
+
+            event.preventDefault();
+          }
+        );
+
+
+        function endDrag() {
+          if (
+            activated ||
+            !dragging
+          ) {
+            return;
+          }
+
+          dragging = false;
+
+          pull.classList.remove(
+            "dragging"
+          );
+
+          resetPull();
+        }
+
+
+        pull.addEventListener(
+          "pointerup",
+          endDrag
+        );
+
+        pull.addEventListener(
+          "pointercancel",
+          endDrag
+        );
+
+
+        /*
+          Phòng trường hợp browser cũ
+          không hỗ trợ pointer event tốt:
+          click núm KHÔNG bật đèn.
+          Phải kéo dây xuống đúng yêu cầu.
+        */
+      })();
+    </script>
+
   </body>
 </html>
