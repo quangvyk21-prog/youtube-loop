@@ -564,19 +564,7 @@ function ensureActiveLoopVocabulary() {
     );
   }
 }
-  const loop = getActiveLoop();
-  renderVocabularyPanel();
 
-  if (
-    loop &&
-    isLoopReady(loop) &&
-    (!Array.isArray(loop.vocab) ||
-      !loop.vocab.length ||
-      loop.vocabSignature !== loopVocabSignature(loop))
-  ) {
-    generateVocabularyForLoop(loop.id);
-  }
-}
 
 function saveLastUrl(url) {
   localStorage.setItem(LAST_URL_KEY, url);
