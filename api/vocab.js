@@ -66,7 +66,6 @@ async function fetchWithTimeout(
       ...options,
       signal: controller.signal
     });
-
   } catch (error) {
     if (error?.name === "AbortError") {
       const timeoutError =
@@ -80,7 +79,6 @@ async function fetchWithTimeout(
     }
 
     throw error;
-
   } finally {
     clearTimeout(timer);
   }
@@ -91,14 +89,10 @@ export default async function handler(
   res
 ) {
   if (req.method !== "POST") {
-    res.setHeader(
-      "Allow",
-      "POST"
-    );
+    res.setHeader("Allow", "POST");
 
     return res.status(405).json({
-      error:
-        "Method not allowed."
+      error: "Method not allowed."
     });
   }
 
@@ -118,54 +112,42 @@ export default async function handler(
   if (!transcript) {
     return res.status(400).json({
       error:
-        "Loop chưa có transcript để lấy nội dung."
+        "Loop chưa có transcript để lấy từ mới."
     });
   }
 
   const prompt = [
     "Bạn là giáo viên tiếng Anh cho người Việt.",
     "",
-    "Bạn sẽ nhận transcript của MỘT ĐOẠN LOOP trong video tiếng Anh.",
+    "MỤC TIÊU:",
+    "Chọn các từ/cụm từ quan trọng nhất để người học chỉ cần nhìn danh sách từ vựng là có thể đoán được nội dung chính của đoạn loop trước khi nghe.",
     "",
-    "Hãy thực hiện 2 nhiệm vụ:",
-    "",
-    "NHIỆM VỤ 1 - TÓM TẮT Ý CHÍNH:",
-    "- Viết summaryVi bằng tiếng Việt.",
-    "- Tóm tắt nội dung chính của đoạn hội thoại để người học hiểu bối cảnh TRƯỚC KHI NGHE.",
-    "- Chỉ 2 đến 3 câu ngắn.",
-    "- Không dịch từng câu.",
-    "- Không kể lan man.",
-    "- Nêu rõ hai bên đang nói về chuyện gì, quan điểm hoặc sự việc chính là gì.",
-    "- Dùng tiếng Việt tự nhiên, dễ hiểu.",
-    "",
-    "NHIỆM VỤ 2 - TỪ VỰNG:",
-    "Chọn các từ/cụm từ quan trọng nhất để người học nhìn danh sách từ vựng và có thể đoán được nội dung chính của đoạn loop.",
-    "",
-    "QUY TẮC CHỌN TỪ:",
+    "QUY TẮC CHỌN:",
     "1. Ưu tiên CỤM TỪ tự nhiên hơn từ đơn.",
-    "2. Ưu tiên phrasal verbs, collocations, expressions, idioms, slang.",
-    "3. Ưu tiên từ/cụm là từ khóa nội dung: chủ đề, người/sự vật, hành động chính, cảm xúc, trạng thái, sự kiện.",
-    "4. Phải giúp hiểu TOÀN BỘ đoạn loop.",
+    "2. Ưu tiên phrasal verbs, collocations, expressions, idioms, slang và các cụm thường được người bản xứ sử dụng.",
+    "3. Ưu tiên các từ/cụm đóng vai trò từ khóa nội dung: chủ đề, người/sự vật quan trọng, hành động chính, cảm xúc, trạng thái và sự kiện chính.",
+    "4. Danh sách phải giúp người học hiểu hoặc đoán được ý của TOÀN BỘ đoạn loop, không chỉ một câu.",
     "5. Cố gắng phủ nội dung từ đầu đến cuối loop.",
-    "6. Không chọn từ hiếm chỉ vì nó khó.",
-    "7. Từ cơ bản vẫn được chọn nếu quan trọng.",
-    "8. Không tách cụm tự nhiên thành nhiều từ đơn.",
-    "9. Không tự tạo cụm không xuất hiện hoặc không phù hợp transcript.",
-    "10. Không chọn nhiều mục có ý nghĩa trùng nhau.",
-    "11. Sắp xếp theo thứ tự xuất hiện.",
-    "12. Chọn tối đa 8 mục, không bắt buộc đủ 8.",
+    "6. Không chọn từ hiếm chỉ vì nó khó nếu nó không quan trọng với nội dung.",
+    "7. Từ cơ bản vẫn được chọn nếu nó là từ khóa quan trọng để hiểu đoạn.",
+    "8. Không tách một cụm từ tự nhiên thành nhiều từ đơn.",
+    "9. Không tự tạo cụm từ không có hoặc không phù hợp với transcript.",
+    "10. Không chọn nhiều mục có ý nghĩa gần như trùng nhau.",
+    "11. Sắp xếp các từ/cụm theo thứ tự chúng xuất hiện trong đoạn hội thoại.",
+    "12. Chọn tối đa 8 mục. Không cần cố đủ 8 nếu đoạn chỉ có ít từ/cụm đáng học.",
     "",
-    "meaningVi:",
-    "- Dịch ngắn.",
-    "- Tự nhiên.",
-    "- Đúng nghĩa trong ngữ cảnh.",
+    "YÊU CẦU VỀ meaningVi:",
+    "- Dịch thật ngắn.",
+    "- Tự nhiên với người Việt.",
+    "- Đúng nghĩa trong ngữ cảnh hiện tại.",
     "- Không giải thích dài.",
+    "- Không thêm ví dụ.",
     "",
-    "MỤC TIÊU CUỐI CÙNG:",
-    "summaryVi + danh sách từ vựng phải giúp người học hình dung đoạn hội thoại đang nói gì trước khi bấm nghe.",
+    "QUAN TRỌNG:",
+    "Danh sách cuối cùng phải giống như một 'bản đồ ý nghĩa' của đoạn loop: nhìn các từ/cụm này phải có thể hình dung đoạn hội thoại đang nói về chuyện gì.",
     "",
     `LOOP: ${loopName || "Loop"}`,
-    `TRANSCRIPT: ${transcript}`
+    `PHỤ ĐỀ: ${transcript}`
   ].join("\n");
 
   try {
@@ -196,7 +178,7 @@ export default async function handler(
             ],
 
             generationConfig: {
-              maxOutputTokens: 900,
+              maxOutputTokens: 700,
               temperature: 0.2,
 
               responseMimeType:
@@ -206,10 +188,6 @@ export default async function handler(
                 type: "OBJECT",
 
                 properties: {
-                  summaryVi: {
-                    type: "STRING"
-                  },
-
                   items: {
                     type: "ARRAY",
                     maxItems: 8,
@@ -235,10 +213,7 @@ export default async function handler(
                   }
                 },
 
-                required: [
-                  "summaryVi",
-                  "items"
-                ]
+                required: ["items"]
               }
             }
           })
@@ -246,10 +221,9 @@ export default async function handler(
         15000
       );
 
-    const data =
-      await response
-        .json()
-        .catch(() => ({}));
+    const data = await response
+      .json()
+      .catch(() => ({}));
 
     if (!response.ok) {
       return res
@@ -262,11 +236,9 @@ export default async function handler(
     }
 
     const raw = clean(
-      data?.candidates?.[0]
-        ?.content?.parts
+      data?.candidates?.[0]?.content?.parts
         ?.map(
-          part =>
-            part?.text || ""
+          part => part?.text || ""
         )
         .join("")
     );
@@ -274,38 +246,25 @@ export default async function handler(
     let parsed;
 
     try {
-      parsed =
-        JSON.parse(raw);
-
+      parsed = JSON.parse(raw);
     } catch {
-      return res
-        .status(502)
-        .json({
-          error:
-            "Gemini trả nội dung loop không đúng JSON."
-        });
+      return res.status(502).json({
+        error:
+          "Gemini trả danh sách từ mới không đúng JSON."
+      });
     }
 
-    const summaryVi =
-      clean(
-        parsed?.summaryVi
-      );
-
     const items =
-      Array.isArray(
-        parsed?.items
-      )
+      Array.isArray(parsed?.items)
         ? parsed.items
             .map(item => ({
-              term:
-                clean(
-                  item?.term
-                ),
+              term: clean(
+                item?.term
+              ),
 
-              meaningVi:
-                clean(
-                  item?.meaningVi
-                )
+              meaningVi: clean(
+                item?.meaningVi
+              )
             }))
             .filter(
               item =>
@@ -315,20 +274,14 @@ export default async function handler(
             .slice(0, 8)
         : [];
 
-    return res
-      .status(200)
-      .json({
-        summaryVi,
-        items,
-        model: MODEL
-      });
+    return res.status(200).json({
+      items,
+      model: MODEL
+    });
 
   } catch (error) {
     return res
-      .status(
-        error?.status ||
-        502
-      )
+      .status(error?.status || 502)
       .json({
         error:
           error?.message ||
