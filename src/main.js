@@ -158,50 +158,133 @@ function loopVocabSignature(loop) {
 }
 
 function renderVocabularyPanel() {
-  if (!els.vocabList || !els.vocabLoopName) return;
+  if (
+    !els.vocabList ||
+    !els.vocabLoopName
+  ) {
+    return;
+  }
 
-  const loop = getActiveLoop();
+  const loop =
+    getActiveLoop();
 
   if (!loop) {
-    els.vocabLoopName.textContent = "Chưa chọn loop";
-    els.vocabList.innerHTML = '<div class="vocab-empty">Tạo hoặc chọn loop để xem từ mới.</div>';
+    els.vocabLoopName.textContent =
+      "Chưa chọn loop";
+
+    els.vocabList.innerHTML = `
+      <div class="vocab-empty">
+        Tạo hoặc chọn loop để xem ý chính và từ mới.
+      </div>
+    `;
+
     return;
   }
 
-  els.vocabLoopName.textContent = loop.name || "Loop";
+  els.vocabLoopName.textContent =
+    loop.name || "Loop";
 
   if (!isLoopReady(loop)) {
-    els.vocabList.innerHTML = '<div class="vocab-empty">Hoàn tất start / end để tạo từ mới.</div>';
+    els.vocabList.innerHTML = `
+      <div class="vocab-empty">
+        Hoàn tất start / end để tạo nội dung.
+      </div>
+    `;
+
     return;
   }
 
-  if (loop.vocabStatus === "loading" || vocabLoadingLoops.has(loop.id)) {
-    els.vocabList.innerHTML = '<div class="vocab-empty">Đang tạo từ mới...</div>';
+  if (
+    loop.vocabStatus === "loading" ||
+    vocabLoadingLoops.has(loop.id)
+  ) {
+    els.vocabList.innerHTML = `
+      <div class="vocab-empty">
+        Đang tạo ý chính và từ mới...
+      </div>
+    `;
+
     return;
   }
 
-  const vocab = Array.isArray(loop.vocab) ? loop.vocab : [];
+  const summaryVi =
+    String(
+      loop.summaryVi || ""
+    ).trim();
+
+  const vocab =
+    Array.isArray(loop.vocab)
+      ? loop.vocab
+      : [];
+
+  let html = "";
+
+  if (summaryVi) {
+    html += `
+      <div class="loop-summary">
+        <div class="loop-summary-title">
+          Ý CHÍNH
+        </div>
+
+        <div class="loop-summary-text">
+          ${escapeHtml(summaryVi)}
+        </div>
+      </div>
+    `;
+  }
 
   if (vocab.length) {
-    els.vocabList.innerHTML = vocab
+    html += `
+      <div class="vocab-section-title">
+        TỪ VỰNG
+      </div>
+    `;
+
+    html += vocab
       .map(item => `
         <div class="vocab-item">
-          <div class="vocab-term">${escapeHtml(item.term || "")}</div>
-          <div class="vocab-meaning">${escapeHtml(item.meaningVi || "")}</div>
+          <div class="vocab-term">
+            ${escapeHtml(
+              item.term || ""
+            )}
+          </div>
+
+          <div class="vocab-meaning">
+            ${escapeHtml(
+              item.meaningVi || ""
+            )}
+          </div>
         </div>
       `)
       .join("");
+  }
+
+  if (html) {
+    els.vocabList.innerHTML =
+      html;
+
     return;
   }
 
-  if (loop.vocabStatus === "error") {
-    els.vocabList.innerHTML = '<div class="vocab-empty">Chưa tạo được từ mới. Chọn lại loop để thử lại.</div>';
+  if (
+    loop.vocabStatus === "error"
+  ) {
+    els.vocabList.innerHTML = `
+      <div class="vocab-empty">
+        Chưa tạo được ý chính và từ mới.
+        Chọn lại loop để thử lại.
+      </div>
+    `;
+
     return;
   }
 
-  els.vocabList.innerHTML = '<div class="vocab-empty">Đang chờ transcript...</div>';
+  els.vocabList.innerHTML = `
+    <div class="vocab-empty">
+      Đang chờ transcript...
+    </div>
+  `;
 }
-
 function getTranscriptForLoop(loop) {
   const segments = getLoopSegments(loop);
   if (!segments.length || !transcriptCues.length) return "";
@@ -221,113 +304,230 @@ function getTranscriptForLoop(loop) {
   return texts.join(" ").replace(/\s+/g, " ").trim();
 }
 
-async function generateVocabularyForLoop(loopId, force = false) {
-  const loop = loadAllLoops().find(item => item.id === loopId);
-  if (!loop || !isLoopReady(loop)) {
+async function generateVocabularyForLoop(
+  loopId,
+  force = false
+) {
+  const loop =
+    loadAllLoops()
+      .find(
+        item =>
+          item.id === loopId
+      );
+
+  if (
+    !loop ||
+    !isLoopReady(loop)
+  ) {
     renderVocabularyPanel();
     return;
   }
 
-  const signature = loopVocabSignature(loop);
-  const existing = Array.isArray(loop.vocab) ? loop.vocab : [];
+  const signature =
+    loopVocabSignature(loop);
 
-  if (!force && existing.length && loop.vocabSignature === signature) {
+  const existing =
+    Array.isArray(loop.vocab)
+      ? loop.vocab
+      : [];
+
+  const existingSummary =
+    String(
+      loop.summaryVi || ""
+    ).trim();
+
+  if (
+    !force &&
+    existing.length &&
+    existingSummary &&
+    loop.vocabSignature ===
+      signature
+  ) {
     renderVocabularyPanel();
     return;
   }
 
-  if (vocabLoadingLoops.has(loopId)) return;
+  if (
+    vocabLoadingLoops.has(
+      loopId
+    )
+  ) {
+    return;
+  }
 
-  const transcript = getTranscriptForLoop(loop);
+  const transcript =
+    getTranscriptForLoop(loop);
 
   if (!transcript) {
     updateLoop(loopId, {
+      summaryVi: "",
       vocab: [],
       vocabStatus: "waiting",
       vocabSignature: null
     });
+
     renderVocabularyPanel();
     return;
   }
 
-  const accessCode = getTranslateAccessCode();
+  const accessCode =
+    getTranslateAccessCode();
 
   if (!accessCode) {
     updateLoop(loopId, {
+      summaryVi: "",
       vocab: [],
       vocabStatus: "waiting",
       vocabSignature: null
     });
+
     renderVocabularyPanel();
     return;
   }
 
-  vocabLoadingLoops.add(loopId);
+  vocabLoadingLoops.add(
+    loopId
+  );
+
   updateLoop(loopId, {
+    summaryVi: "",
     vocab: [],
     vocabStatus: "loading",
     vocabSignature: null
   });
+
   renderVocabularyPanel();
 
   try {
-    const response = await fetch("/api/vocab", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-translate-access": accessCode
-      },
-      body: JSON.stringify({
-        loopName: loop.name || "Loop",
-        transcript
-      })
-    });
+    const response =
+      await fetch(
+        "/api/vocab",
+        {
+          method: "POST",
 
-    const data = await response.json().catch(() => ({}));
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            "x-translate-access":
+              accessCode
+          },
+
+          body: JSON.stringify({
+            loopName:
+              loop.name ||
+              "Loop",
+
+            transcript
+          })
+        }
+      );
+
+    const data =
+      await response
+        .json()
+        .catch(
+          () => ({})
+        );
 
     if (!response.ok) {
-      if (response.status === 403) {
+      if (
+        response.status === 403
+      ) {
         forgetTranslateAccessCode();
       }
-      throw new Error(data?.error || "Không tạo được từ mới.");
+
+      throw new Error(
+        data?.error ||
+        "Không tạo được nội dung loop."
+      );
     }
 
-    const latestLoop = loadAllLoops().find(item => item.id === loopId);
-    if (!latestLoop || loopVocabSignature(latestLoop) !== signature) {
+    const latestLoop =
+      loadAllLoops()
+        .find(
+          item =>
+            item.id === loopId
+        );
+
+    if (
+      !latestLoop ||
+      loopVocabSignature(
+        latestLoop
+      ) !== signature
+    ) {
       return;
     }
 
-    const items = Array.isArray(data?.items)
-      ? data.items
-          .map(item => ({
-            term: String(item?.term || "").trim(),
-            meaningVi: String(item?.meaningVi || "").trim()
-          }))
-          .filter(item => item.term && item.meaningVi)
-          .slice(0, 8)
-      : [];
+    const summaryVi =
+      String(
+        data?.summaryVi || ""
+      ).trim();
+
+    const items =
+      Array.isArray(
+        data?.items
+      )
+        ? data.items
+            .map(item => ({
+              term:
+                String(
+                  item?.term || ""
+                ).trim(),
+
+              meaningVi:
+                String(
+                  item?.meaningVi || ""
+                ).trim()
+            }))
+            .filter(
+              item =>
+                item.term &&
+                item.meaningVi
+            )
+            .slice(0, 8)
+        : [];
 
     updateLoop(loopId, {
+      summaryVi,
       vocab: items,
-      vocabStatus: items.length ? "ready" : "empty",
-      vocabSignature: signature
+
+      vocabStatus:
+        summaryVi ||
+        items.length
+          ? "ready"
+          : "empty",
+
+      vocabSignature:
+        signature
     });
+
   } catch (error) {
     updateLoop(loopId, {
+      summaryVi: "",
       vocab: [],
       vocabStatus: "error",
       vocabSignature: null
     });
 
-    if (activeLoopId === loopId) {
-      setError(error?.message || "Không tạo được từ mới.");
+    if (
+      activeLoopId ===
+      loopId
+    ) {
+      setError(
+        error?.message ||
+        "Không tạo được nội dung loop."
+      );
     }
+
   } finally {
-    vocabLoadingLoops.delete(loopId);
+    vocabLoadingLoops.delete(
+      loopId
+    );
+
     renderVocabularyPanel();
   }
 }
-
 function scheduleVocabularyRefresh(loopId, delay = 900) {
   const oldTimer = vocabRefreshTimers.get(loopId);
   if (oldTimer) clearTimeout(oldTimer);
@@ -341,6 +541,29 @@ function scheduleVocabularyRefresh(loopId, delay = 900) {
 }
 
 function ensureActiveLoopVocabulary() {
+  const loop =
+    getActiveLoop();
+
+  renderVocabularyPanel();
+
+  if (
+    loop &&
+    isLoopReady(loop) &&
+    (
+      !Array.isArray(loop.vocab) ||
+      !loop.vocab.length ||
+      !String(
+        loop.summaryVi || ""
+      ).trim() ||
+      loop.vocabSignature !==
+        loopVocabSignature(loop)
+    )
+  ) {
+    generateVocabularyForLoop(
+      loop.id
+    );
+  }
+}
   const loop = getActiveLoop();
   renderVocabularyPanel();
 
@@ -450,10 +673,11 @@ function createNewLoop() {
     start: null,
     end: null,
     speed: playbackSpeed,
-    vocab: [],
-    vocabStatus: "waiting",
-    vocabSignature: null,
-    createdAt: Date.now()
+summaryVi: "",
+vocab: [],
+vocabStatus: "waiting",
+vocabSignature: null,
+createdAt: Date.now()
   };
 
   const items = loadAllLoops();
@@ -585,11 +809,12 @@ function createCombinedLoop() {
       end: loop.end,
       sourceName: loop.name || "Loop"
     })),
-    speed: playbackSpeed,
-    vocab: [],
-    vocabStatus: "waiting",
-    vocabSignature: null,
-    createdAt: Date.now()
+   speed: playbackSpeed,
+summaryVi: "",
+vocab: [],
+vocabStatus: "waiting",
+vocabSignature: null,
+createdAt: Date.now()
   };
 
   all.unshift(combo);
