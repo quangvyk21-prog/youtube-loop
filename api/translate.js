@@ -121,7 +121,7 @@ async function callGemini(
         }
       })
     },
-    15000
+    20000
   );
 
   const data = await response
@@ -140,6 +140,120 @@ async function callGemini(
   }
 
   return getModelText(data);
+}
+
+async function translateBatchRobust(
+  apiKey,
+  batch
+) {
+  const makePrompt = (
+    entries,
+    retry = false
+  ) => [
+    "Bạn là biên dịch viên phụ đề tiếng Anh sang tiếng Việt.",
+    "Dịch tự nhiên theo đúng ngữ cảnh hội thoại, không dịch từng chữ.",
+    "Mỗi câu có ID riêng. PHẢI trả lại đúng ID tương ứng.",
+    "Không được gộp hai câu thành một. Không được bỏ sót câu.",
+    "Không được đổi thứ tự ID.",
+    retry
+      ? "Đây là các câu còn thiếu từ lần trước. Hãy dịch ĐỦ tất cả ID."
+      : "Hãy dịch ĐỦ tất cả câu.",
+    'Chỉ trả JSON dạng: {"translations":[{"id":0,"text":"..."},{"id":1,"text":"..."}]}',
+    "Không giải thích, không markdown.",
+    "",
+    `SUBTITLES: ${JSON.stringify(entries)}`
+  ].join("\n");
+
+  const parseItems = raw => {
+    const parsed = parseJson(raw);
+    const source =
+      Array.isArray(parsed?.translations)
+        ? parsed.translations
+        : [];
+
+    const map = new Map();
+
+    source.forEach((item, index) => {
+      // Hỗ trợ cả format cũ ["..."] lẫn format mới [{id,text}]
+      if (typeof item === "string") {
+        const value = clean(item);
+        if (value) map.set(index, value);
+        return;
+      }
+
+      const id = Number(item?.id);
+      const value = clean(
+        item?.text ??
+        item?.translation
+      );
+
+      if (
+        Number.isInteger(id) &&
+        id >= 0 &&
+        id < batch.length &&
+        value
+      ) {
+        map.set(id, value);
+      }
+    });
+
+    return map;
+  };
+
+  const entries = batch.map(
+    (text, id) => ({ id, text })
+  );
+
+  const firstRaw = await callGemini(
+    apiKey,
+    makePrompt(entries, false),
+    2200
+  );
+
+  const resultMap =
+    parseItems(firstRaw);
+
+  const missing = entries.filter(
+    item => !resultMap.has(item.id)
+  );
+
+  // Gemini đôi lúc bỏ 1-2 câu trong batch.
+  // Retry riêng đúng những ID còn thiếu thay vì làm hỏng cả batch.
+  if (missing.length) {
+    const retryRaw = await callGemini(
+      apiKey,
+      makePrompt(missing, true),
+      Math.max(
+        500,
+        missing.length * 220
+      )
+    );
+
+    const retryMap =
+      parseItems(retryRaw);
+
+    retryMap.forEach(
+      (value, id) => {
+        resultMap.set(id, value);
+      }
+    );
+  }
+
+  const translations =
+    batch.map(
+      (_, id) =>
+        clean(resultMap.get(id))
+    );
+
+  if (
+    translations.some(item => !item)
+  ) {
+    throw new Error(
+      "Gemini chưa trả đủ bản dịch sau khi tự thử lại."
+    );
+  }
+
+  return translations;
 }
 
 export default async function handler(req, res) {
@@ -165,40 +279,11 @@ export default async function handler(req, res) {
       : [];
 
     if (batch.length) {
-      const prompt = [
-        "Bạn là biên dịch viên phụ đề tiếng Anh sang tiếng Việt.",
-        "Dịch tự nhiên theo đúng ngữ cảnh hội thoại, không dịch từng chữ.",
-        "Các câu dưới đây nằm liên tiếp trong cùng một video.",
-        "Hãy dùng toàn bộ nhóm câu để hiểu ngữ cảnh.",
-        "Giữ đúng số lượng câu và đúng thứ tự.",
-        'Chỉ trả JSON dạng: {"translations":["câu 1","câu 2"]}',
-        "Không giải thích, không markdown.",
-        "",
-        `SUBTITLES: ${JSON.stringify(batch)}`
-      ].join("\n");
-
-      const raw = await callGemini(
-        apiKey,
-        prompt,
-        1800
-      );
-
-      const parsed = parseJson(raw);
-
       const translations =
-        Array.isArray(parsed?.translations)
-          ? parsed.translations.map(clean)
-          : [];
-
-      if (
-        translations.length !== batch.length ||
-        translations.some(item => !item)
-      ) {
-        return res.status(502).json({
-          error:
-            "Gemini trả về batch dịch không đủ số câu."
-        });
-      }
+        await translateBatchRobust(
+          apiKey,
+          batch
+        );
 
       return res.status(200).json({
         translations,
