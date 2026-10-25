@@ -12,6 +12,7 @@ let playbackSpeed = 1.0;
 let lastLiveSidebarSecond = -1;
 
 let transcriptCues = [];
+let transcriptWords = [];
 let currentCueIndex = -1;
 let subtitleRequestToken = 0;
 const translationMemory = new Map();
@@ -1211,6 +1212,7 @@ function resetSubtitles(status = "Chưa tải phụ đề") {
   sentenceLoopCueEnd = -1;
 
   transcriptCues = [];
+  transcriptWords = [];
   currentCueIndex = -1;
   subtitleRequestToken += 1;
   els.subtitleEnglish.textContent = "";
@@ -1246,9 +1248,54 @@ function normalizeTranscriptItems(items) {
     .sort((a, b) => a.start - b.start);
 }
 
+function normalizeTranscriptWordItems(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return [];
+  }
+
+  const duration = getDuration();
+
+  const rawMax = Math.max(
+    ...items.map(item => {
+      const offset = Number(item?.offset) || 0;
+      const dur = Number(item?.duration) || 0;
+      return offset + dur;
+    })
+  );
+
+  const scale =
+    duration > 0 &&
+    rawMax > duration * 20
+      ? 0.001
+      : 1;
+
+  return items
+    .map(item => {
+      const start =
+        (Number(item?.offset) || 0) * scale;
+
+      const dur =
+        Math.max(
+          0.03,
+          (Number(item?.duration) || 0) * scale
+        );
+
+      return {
+        text: String(item?.text || "")
+          .replace(/\s+/g, " ")
+          .trim(),
+        start,
+        end: start + dur
+      };
+    })
+    .filter(word => word.text)
+    .sort((a, b) => a.start - b.start);
+}
+
 async function loadTranscript(videoId) {
   const token = ++subtitleRequestToken;
   transcriptCues = [];
+  transcriptWords = [];
   currentCueIndex = -1;
   els.subtitleStatus.textContent = "Đang tải phụ đề tiếng Anh...";
   els.subtitleEnglish.textContent = "";
@@ -1265,18 +1312,22 @@ async function loadTranscript(videoId) {
     }
 
     transcriptCues = normalizeTranscriptItems(data.items);
+    transcriptWords = normalizeTranscriptWordItems(
+      data.words
+    );
 
     if (!transcriptCues.length) {
       throw new Error("Video không có phụ đề tiếng Anh.");
     }
 
-    els.subtitleStatus.textContent = `EN + VI • ${transcriptCues.length} câu`;
+    els.subtitleStatus.textContent = transcriptWords.length ? `EN + VI • WORD • ${transcriptCues.length} câu` : `EN + VI • ${transcriptCues.length} câu`;
     els.subtitleStatus.classList.add("ok");
     updateSubtitleForTime(player?.getCurrentTime?.() || 0, true);
     ensureActiveLoopVocabulary();
   } catch {
     if (token !== subtitleRequestToken) return;
     transcriptCues = [];
+    transcriptWords = [];
     currentCueIndex = -1;
     els.subtitleStatus.textContent = "Không lấy được phụ đề";
     els.subtitleEnglish.textContent = "Video này không có transcript tiếng Anh khả dụng.";
@@ -1523,139 +1574,168 @@ function getActivePlaybackSegment() {
   return segments[0];
 }
 
-function findCompleteSentenceBounds(cueIndex) {
-  if (
-    cueIndex < 0 ||
-    cueIndex >= transcriptCues.length
-  ) {
+function wordEndsPhrase(text = "") {
+  return /[,;:.!?]["')\]]*$/.test(
+    String(text).trim()
+  );
+}
+
+function findWordIndexAtTime(time) {
+  if (!transcriptWords.length) return -1;
+
+  let low = 0;
+  let high = transcriptWords.length - 1;
+  let best = -1;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+
+    if (
+      transcriptWords[mid].start <=
+      time + 0.03
+    ) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return best;
+}
+
+function findCompleteSentenceBounds() {
+  if (!transcriptWords.length) {
     return null;
   }
 
   const segment = getActivePlaybackSegment();
-  const segmentStart = segment?.start ?? 0;
-  const segmentEnd = segment?.end ?? getDuration();
 
-  const cue = transcriptCues[cueIndex];
-  if (!cue) return null;
+  if (!segment) return null;
 
-  const text = String(cue.text || "").trim();
-  if (!text) return null;
+  let now = 0;
 
-  const cueStart = Math.max(segmentStart, cue.start);
-  const cueEnd = Math.min(segmentEnd, cue.end);
-  const cueDuration = Math.max(0.2, cueEnd - cueStart);
-
-  // Tách cue thành các cụm đúng theo dấu câu.
-  const phraseMatches = [
-    ...text.matchAll(/[^,;:.!?]+[,;:.!?]?/g)
-  ];
-
-  if (!phraseMatches.length) return null;
-
-  const words = text
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (!words.length) return null;
-
-  let now = cueStart;
   try {
     now = player.getCurrentTime();
-  } catch {}
+  } catch {
+    return null;
+  }
 
-  const timeRatio = Math.max(
-    0,
-    Math.min(
-      0.999,
-      (now - cueStart) / cueDuration
-    )
-  );
+  let wordIndex = findWordIndexAtTime(now);
 
-  const currentWordIndex = Math.min(
-    words.length - 1,
-    Math.floor(timeRatio * words.length)
-  );
+  if (wordIndex < 0) return null;
 
-  let phraseStartWord = 0;
-  let phraseEndWord = words.length;
-  let runningWord = 0;
-  let phraseText = text;
+  // Nếu word đang nằm ngoài loop hiện tại, tìm word gần nhất trong loop.
+  if (
+    transcriptWords[wordIndex].start <
+      segment.start ||
+    transcriptWords[wordIndex].start >=
+      segment.end
+  ) {
+    wordIndex = transcriptWords.findIndex(
+      word =>
+        word.start >= segment.start &&
+        word.start < segment.end
+    );
+  }
 
-  for (const match of phraseMatches) {
-    const part = String(match[0] || "").trim();
-    const partWords = part
-      .split(/\s+/)
-      .filter(Boolean);
+  if (wordIndex < 0) return null;
 
-    const nextRunning =
-      runningWord + partWords.length;
+  let startIndex = wordIndex;
+  let endIndex = wordIndex;
 
-    if (
-      currentWordIndex >= runningWord &&
-      currentWordIndex < nextRunning
-    ) {
-      phraseStartWord = runningWord;
-      phraseEndWord = nextRunning;
-      phraseText = part;
+  // Đi lùi tới ngay SAU dấu câu gần nhất.
+  for (let i = wordIndex - 1; i >= 0; i--) {
+    const word = transcriptWords[i];
+
+    if (word.start < segment.start) {
       break;
     }
 
-    runningWord = nextRunning;
+    if (wordEndsPhrase(word.text)) {
+      startIndex = i + 1;
+      break;
+    }
+
+    startIndex = i;
   }
 
-  const startRatio =
-    phraseStartWord / words.length;
+  // Đi tới dấu câu kế tiếp, bao gồm chính word có dấu.
+  for (
+    let i = wordIndex;
+    i < transcriptWords.length;
+    i++
+  ) {
+    const word = transcriptWords[i];
 
-  const endRatio =
-    phraseEndWord / words.length;
+    if (word.start >= segment.end) {
+      break;
+    }
 
-  let startTime =
-    cueStart + cueDuration * startRatio;
+    endIndex = i;
 
-  let endTime =
-    cueStart + cueDuration * endRatio;
+    if (wordEndsPhrase(word.text)) {
+      break;
+    }
+  }
 
-  const avgWordDuration =
-    cueDuration / Math.max(1, words.length);
+  const firstWord =
+    transcriptWords[startIndex];
 
-  // BẮT ĐẦU đúng đầu phrase:
-  // không nhích vào trong nữa.
-  startTime -= Math.min(
-    0.08,
-    avgWordDuration * 0.15
-  );
+  const lastWord =
+    transcriptWords[endIndex];
 
-  // KẾT THÚC gần dấu câu kế tiếp:
-  // chỉ bù nhẹ để tránh tràn sang vế sau,
-  // không cắt mạnh giữa phrase.
-  endTime -= Math.min(
-    0.22,
-    Math.max(
-      0.10,
-      avgWordDuration * 0.45
-    )
-  );
-
-  const start = Math.max(
-    segmentStart + 0.005,
-    startTime
-  );
-
-  const end = Math.min(
-    segmentEnd - 0.005,
-    endTime
-  );
-
-  if (!(end > start + 0.15)) {
+  if (!firstWord || !lastWord) {
     return null;
   }
+
+  const nextWord =
+    transcriptWords[endIndex + 1];
+
+  const start = Math.max(
+    segment.start + 0.005,
+    firstWord.start - 0.035
+  );
+
+  // Kết thúc theo timestamp word thật:
+  // nếu có word kế tiếp thì dừng ngay trước word đó.
+  let end =
+    lastWord.end;
+
+  if (
+    nextWord &&
+    nextWord.start > lastWord.start
+  ) {
+    end = Math.min(
+      end,
+      nextWord.start - 0.045
+    );
+  }
+
+  end = Math.min(
+    segment.end - 0.005,
+    end
+  );
+
+  if (!(end > start + 0.12)) {
+    return null;
+  }
+
+  const phraseText =
+    transcriptWords
+      .slice(startIndex, endIndex + 1)
+      .map(word => word.text)
+      .join(" ")
+      .replace(/\s+([,;:.!?])/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
 
   return {
     start,
     end,
-    startIndex: cueIndex,
-    endIndex: cueIndex,
-    phraseText: phraseText.trim()
+    startIndex,
+    endIndex,
+    phraseText
   };
 }
 
@@ -1692,14 +1772,14 @@ function toggleSentenceLoop() {
     return;
   }
 
-  const now = player.getCurrentTime();
-  const cueIndex = findCueIndex(now);
   const bounds =
-    findCompleteSentenceBounds(cueIndex);
+    findCompleteSentenceBounds();
 
   if (!bounds) {
     setError(
-      "Không xác định được cụm ngắn tại vị trí này."
+      transcriptWords.length
+        ? "Không xác định được cụm word-level tại vị trí này."
+        : "Video này không có word-level timing từ YouTube; T không cắt đoán."
     );
     return;
   }
@@ -1846,7 +1926,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.04) {
+      if (current >= sentenceLoopEnd - 0.035) {
         player.seekTo(
           sentenceLoopStart,
           true
