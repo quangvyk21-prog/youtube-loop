@@ -1617,23 +1617,35 @@ function findCompleteSentenceBounds(cueIndex) {
     cueStart + cueDuration * endRatio;
 
   // QUAN TRỌNG:
-  // Caption timing thường trễ hơn lời nói thật.
-  // Cắt sớm rõ rệt để không lố qua dấu phẩy/chấm.
+  // Không tin hoàn toàn timestamp caption ở dấu câu.
+  // Cắt sớm thêm theo "thời lượng trung bình của 1 từ"
+  // để chắc chắn không lố sang vế sau.
+  const avgWordDuration =
+    cueDuration / Math.max(1, words.length);
+
   const endLead = Math.min(
-    0.55,
+    0.95,
     Math.max(
-      0.28,
-      cueDuration * 0.12
+      0.45,
+      avgWordDuration * 1.6
     )
   );
 
-  startTime += 0.06;
+  // Đầu phrase cũng nhích vào nhẹ để tránh dính vế trước.
+  startTime += Math.min(
+    0.16,
+    Math.max(
+      0.06,
+      avgWordDuration * 0.35
+    )
+  );
+
   endTime -= endLead;
 
-  // Phrase T phải ngắn.
+  // T phải ngắn, ưu tiên sạch hơn đầy đủ.
   endTime = Math.min(
     endTime,
-    startTime + 2.4
+    startTime + 1.9
   );
 
   const start = Math.max(
@@ -1846,7 +1858,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.12) {
+      if (current >= sentenceLoopEnd - 0.18) {
         player.seekTo(
           sentenceLoopStart,
           true
