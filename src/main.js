@@ -1545,7 +1545,7 @@ function findCompleteSentenceBounds(cueIndex) {
   const cueEnd = Math.min(segmentEnd, cue.end);
   const cueDuration = Math.max(0.2, cueEnd - cueStart);
 
-  // Tách cue thành các cụm ngắn theo dấu câu.
+  // Tách cue thành các cụm đúng theo dấu câu.
   const phraseMatches = [
     ...text.matchAll(/[^,;:.!?]+[,;:.!?]?/g)
   ];
@@ -1571,7 +1571,6 @@ function findCompleteSentenceBounds(cueIndex) {
     )
   );
 
-  // Ước lượng vị trí hiện tại theo TỪ, không theo ký tự.
   const currentWordIndex = Math.min(
     words.length - 1,
     Math.floor(timeRatio * words.length)
@@ -1616,45 +1615,34 @@ function findCompleteSentenceBounds(cueIndex) {
   let endTime =
     cueStart + cueDuration * endRatio;
 
-  // QUAN TRỌNG:
-  // Không tin hoàn toàn timestamp caption ở dấu câu.
-  // Cắt sớm thêm theo "thời lượng trung bình của 1 từ"
-  // để chắc chắn không lố sang vế sau.
   const avgWordDuration =
     cueDuration / Math.max(1, words.length);
 
-  const endLead = Math.min(
-    0.95,
-    Math.max(
-      0.45,
-      avgWordDuration * 1.6
-    )
+  // BẮT ĐẦU đúng đầu phrase:
+  // không nhích vào trong nữa.
+  startTime -= Math.min(
+    0.08,
+    avgWordDuration * 0.15
   );
 
-  // Đầu phrase cũng nhích vào nhẹ để tránh dính vế trước.
-  startTime += Math.min(
-    0.16,
+  // KẾT THÚC gần dấu câu kế tiếp:
+  // chỉ bù nhẹ để tránh tràn sang vế sau,
+  // không cắt mạnh giữa phrase.
+  endTime -= Math.min(
+    0.22,
     Math.max(
-      0.06,
-      avgWordDuration * 0.35
+      0.10,
+      avgWordDuration * 0.45
     )
-  );
-
-  endTime -= endLead;
-
-  // T phải ngắn, ưu tiên sạch hơn đầy đủ.
-  endTime = Math.min(
-    endTime,
-    startTime + 1.9
   );
 
   const start = Math.max(
-    segmentStart + 0.01,
+    segmentStart + 0.005,
     startTime
   );
 
   const end = Math.min(
-    segmentEnd - 0.01,
+    segmentEnd - 0.005,
     endTime
   );
 
@@ -1858,7 +1846,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.18) {
+      if (current >= sentenceLoopEnd - 0.04) {
         player.seekTo(
           sentenceLoopStart,
           true
