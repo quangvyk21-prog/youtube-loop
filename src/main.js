@@ -1531,44 +1531,33 @@ function findShortLoopBounds() {
   if (!segment) return null;
 
   let now = 0;
+
   try {
     now = player.getCurrentTime();
   } catch {
     return null;
   }
 
-  const cueIndex = findCueIndex(now);
-  if (cueIndex < 0) return null;
+  // Bắt đầu giống nút A/S:
+  // lấy đúng cue hiện tại làm mốc đầu.
+  const startIndex = findCueIndex(now);
 
-  let startIndex = cueIndex;
-  let endIndex = cueIndex;
-
-  // BẮT BUỘC: luôn tìm về đầu câu/cụm trước.
-  // Đầu cụm là cue ngay sau dấu , ; : . ? !
-  // hoặc START của loop.
-  for (let i = cueIndex - 1; i >= 0; i--) {
-    const cue = transcriptCues[i];
-
-    if (cue.start < segment.start) {
-      break;
-    }
-
-    if (cueEndsPhrase(cue.text)) {
-      startIndex = i + 1;
-      break;
-    }
-
-    startIndex = i;
-  }
+  if (startIndex < 0) return null;
 
   const firstCue = transcriptCues[startIndex];
-  if (!firstCue) return null;
 
-  // Đi tới dấu ngắt tiếp theo.
-  // Nếu câu quá dài thì dừng ở cue gần mốc 3.2s,
-  // nhưng vẫn giữ NGUYÊN đầu câu.
-  const MAX_T_SECONDS = 3.2;
+  if (
+    !firstCue ||
+    firstCue.start < segment.start ||
+    firstCue.start >= segment.end
+  ) {
+    return null;
+  }
 
+  let endIndex = startIndex;
+
+  // Từ cue hiện tại, đi tới cue đầu tiên có dấu ngắt.
+  // Ưu tiên dấu phẩy trước, nhưng vẫn chấp nhận ; : . ? !
   for (
     let i = startIndex;
     i < transcriptCues.length;
@@ -1580,25 +1569,15 @@ function findShortLoopBounds() {
       break;
     }
 
-    const durationFromStart =
-      cue.end - firstCue.start;
-
-    // Ưu tiên dấu câu trước.
-    if (cueEndsPhrase(cue.text)) {
-      endIndex = i;
-      break;
-    }
-
-    // Nếu quá dài, dừng tại cue đầy đủ gần nhất.
-    if (durationFromStart >= MAX_T_SECONDS) {
-      endIndex = Math.max(
-        startIndex,
-        i - 1
-      );
-      break;
-    }
-
     endIndex = i;
+
+    if (
+      /[,;:.!?]["')\]]*$/.test(
+        String(cue.text || "").trim()
+      )
+    ) {
+      break;
+    }
   }
 
   const lastCue = transcriptCues[endIndex];
@@ -1616,7 +1595,7 @@ function findShortLoopBounds() {
     lastCue.end
   );
 
-  // Nếu cue.end chồng sang cue sau thì dừng ngay trước cue sau.
+  // Nếu caption overlap thì dừng ngay trước cue sau.
   if (
     nextCue &&
     Number.isFinite(nextCue.start) &&
