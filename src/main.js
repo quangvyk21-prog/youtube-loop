@@ -1538,72 +1538,107 @@ function findShortLoopBounds() {
     return null;
   }
 
-  // Bắt đầu giống nút A/S:
-  // lấy đúng cue hiện tại làm mốc đầu.
-  const startIndex = findCueIndex(now);
+  // Bắt đầu giống A/S: đúng đầu cue hiện tại.
+  const cueIndex = findCueIndex(now);
 
-  if (startIndex < 0) return null;
+  if (cueIndex < 0) return null;
 
-  const firstCue = transcriptCues[startIndex];
+  const cue = transcriptCues[cueIndex];
 
   if (
-    !firstCue ||
-    firstCue.start < segment.start ||
-    firstCue.start >= segment.end
+    !cue ||
+    cue.start < segment.start ||
+    cue.start >= segment.end
   ) {
     return null;
   }
 
-  let endIndex = startIndex;
+  const text =
+    String(cue.text || "")
+      .replace(/\s+/g, " ")
+      .trim();
 
-  // Từ cue hiện tại, đi tới cue đầu tiên có dấu ngắt.
-  // Ưu tiên dấu phẩy trước, nhưng vẫn chấp nhận ; : . ? !
-  for (
-    let i = startIndex;
-    i < transcriptCues.length;
-    i++
-  ) {
-    const cue = transcriptCues[i];
-
-    if (cue.start >= segment.end) {
-      break;
-    }
-
-    endIndex = i;
-
-    if (
-      /[,;:.!?]["')\]]*$/.test(
-        String(cue.text || "").trim()
-      )
-    ) {
-      break;
-    }
-  }
-
-  const lastCue = transcriptCues[endIndex];
-  if (!lastCue) return null;
-
-  const nextCue = transcriptCues[endIndex + 1];
+  if (!text) return null;
 
   const start = Math.max(
     segment.start + 0.005,
-    firstCue.start + 0.005
+    cue.start + 0.005
   );
 
-  let end = Math.min(
+  const cueEnd = Math.min(
     segment.end - 0.005,
-    lastCue.end
+    cue.end
   );
 
-  // Nếu caption overlap thì dừng ngay trước cue sau.
-  if (
-    nextCue &&
-    Number.isFinite(nextCue.start) &&
-    nextCue.start > lastCue.start
-  ) {
+  const cueDuration =
+    Math.max(0.2, cueEnd - cue.start);
+
+  // Tìm dấu ngắt ĐẦU TIÊN trong chính cue hiện tại.
+  // Ưu tiên đúng kiểu: đầu đoạn -> dấu phẩy/chấm gần nhất.
+  const punctuationMatch =
+    text.match(/[,;:.!?]/);
+
+  let end = cueEnd;
+  let phraseText = text;
+
+  if (punctuationMatch) {
+    const punctIndex =
+      punctuationMatch.index ?? -1;
+
+    if (punctIndex >= 0) {
+      const textUntilPunctuation =
+        text.slice(
+          0,
+          punctIndex + 1
+        );
+
+      phraseText =
+        textUntilPunctuation.trim();
+
+      // Canh thời gian theo SỐ TỪ trước dấu,
+      // không lấy nguyên paragraph.
+      const allWords =
+        text
+          .split(/\s+/)
+          .filter(Boolean);
+
+      const phraseWords =
+        textUntilPunctuation
+          .split(/\s+/)
+          .filter(Boolean);
+
+      const ratio =
+        allWords.length
+          ? phraseWords.length /
+            allWords.length
+          : (punctIndex + 1) /
+            text.length;
+
+      end =
+        cue.start +
+        cueDuration * ratio;
+
+      // Caption thường trễ nhẹ; dừng sớm một chút
+      // để tránh lọt từ sau dấu.
+      end -= 0.12;
+    }
+  }
+
+  // Nếu câu đầu quá dài, T vẫn phải ngắn,
+  // nhưng KHÔNG thay đổi điểm bắt đầu.
+  const MAX_T_SECONDS = 3.4;
+
+  end = Math.min(
+    end,
+    start + MAX_T_SECONDS,
+    segment.end - 0.005
+  );
+
+  // Không cắt vô lý quá ngắn.
+  if (!(end > start + 0.35)) {
     end = Math.min(
-      end,
-      nextCue.start - 0.06
+      cueEnd,
+      start + 1.2
     );
   }
 
@@ -1611,18 +1646,11 @@ function findShortLoopBounds() {
     return null;
   }
 
-  const phraseText = transcriptCues
-    .slice(startIndex, endIndex + 1)
-    .map(cue => cue.text)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-
   return {
     start,
     end,
-    startIndex,
-    endIndex,
+    startIndex: cueIndex,
+    endIndex: cueIndex,
     phraseText
   };
 }
@@ -1809,7 +1837,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.04) {
+      if (current >= sentenceLoopEnd - 0.05) {
         player.seekTo(
           sentenceLoopStart,
           true
