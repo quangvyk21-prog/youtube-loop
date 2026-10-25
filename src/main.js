@@ -33,6 +33,7 @@ let sentenceLoopStart = null;
 let sentenceLoopEnd = null;
 let sentenceLoopCueStart = -1;
 let sentenceLoopCueEnd = -1;
+let activeSavedTLoopId = null;
 const combineSelection = new Set();
 
 const STORAGE_KEY = "ytloop:v5:loops";
@@ -458,8 +459,7 @@ function createNewLoop() {
     start: null,
     end: null,
     speed: playbackSpeed,
-    tLoopStart: null,
-    tLoopEnd: null,
+    tLoops: [],
     vocab: [],
     vocabStatus: "waiting",
     vocabSignature: null,
@@ -490,6 +490,7 @@ function selectLoop(id, seekToStart = false) {
   sentenceLoopEnd = null;
   sentenceLoopCueStart = -1;
   sentenceLoopCueEnd = -1;
+  activeSavedTLoopId = null;
 
   activeLoopId = id;
   suspendAutoLoop = false;
@@ -497,16 +498,6 @@ function selectLoop(id, seekToStart = false) {
   lastLiveSidebarSecond = -1;
 
   const loop = getActiveLoop();
-
-  if (
-    loop &&
-    Number.isFinite(loop.tLoopStart) &&
-    Number.isFinite(loop.tLoopEnd) &&
-    loop.tLoopEnd > loop.tLoopStart
-  ) {
-    sentenceLoopStart = loop.tLoopStart;
-    sentenceLoopEnd = loop.tLoopEnd;
-  }
 
   if (loop && Number.isFinite(loop.speed)) {
     playbackSpeed = loop.speed;
@@ -547,6 +538,97 @@ function deleteLoop(id) {
   updateLoopUi();
   updateCombineToolbar();
   renderVocabularyPanel();
+}
+
+function getSavedTLoops(loop) {
+  if (!loop) return [];
+
+  const saved = Array.isArray(loop.tLoops)
+    ? loop.tLoops
+        .filter(
+          item =>
+            Number.isFinite(item?.start) &&
+            Number.isFinite(item?.end) &&
+            item.end > item.start
+        )
+        .map((item, index) => ({
+          id:
+            String(item.id || "") ||
+            `t-${index + 1}`,
+          start: Number(item.start),
+          end: Number(item.end),
+          createdAt:
+            Number(item.createdAt) || 0
+        }))
+    : [];
+
+  // Giữ lại loop T kiểu cũ nếu đã tạo ở bản trước.
+  if (
+    !saved.length &&
+    Number.isFinite(loop.tLoopStart) &&
+    Number.isFinite(loop.tLoopEnd) &&
+    loop.tLoopEnd > loop.tLoopStart
+  ) {
+    return [
+      {
+        id: "legacy-t-1",
+        start: loop.tLoopStart,
+        end: loop.tLoopEnd,
+        createdAt: 0
+      }
+    ];
+  }
+
+  return saved;
+}
+
+function playSavedTLoop(loopId, tLoopId) {
+  const loop =
+    loadAllLoops().find(
+      item => item.id === loopId
+    );
+
+  if (!loop || !player) return;
+
+  const saved = getSavedTLoops(loop);
+
+  const tLoop =
+    saved.find(
+      item => item.id === tLoopId
+    );
+
+  if (!tLoop) {
+    setError("Không tìm thấy loop T đã lưu.");
+    return;
+  }
+
+  activeLoopId = loop.id;
+  sentenceLoopSetting = false;
+  sentenceLoopActive = true;
+  sentenceLoopStart = tLoop.start;
+  sentenceLoopEnd = tLoop.end;
+  activeSavedTLoopId = tLoop.id;
+  suspendAutoLoop = false;
+  currentCueIndex = -1;
+
+  player.seekTo(
+    sentenceLoopStart,
+    true
+  );
+
+  player.playVideo();
+
+  updateSubtitleForTime(
+    sentenceLoopStart,
+    true
+  );
+
+  renderLoops();
+  updateLoopUi();
+
+  setError(
+    `T • đang xem lại ${formatLoopTime(sentenceLoopStart)} - ${formatLoopTime(sentenceLoopEnd)}`
+  );
 }
 
 function updateLoop(loopId, patch) {
@@ -621,6 +703,7 @@ function createCombinedLoop() {
       sourceName: loop.name || "Loop"
     })),
     speed: playbackSpeed,
+    tLoops: [],
     vocab: [],
     vocabStatus: "waiting",
     vocabSignature: null,
@@ -768,6 +851,39 @@ function renderLoops() {
           ? "ACTIVE"
           : "LOOP";
 
+    const savedTLoops =
+      getSavedTLoops(loop);
+
+    const savedTLoopsHtml =
+      active && savedTLoops.length
+        ? `
+          <div class="t-loop-saved-list">
+            <div class="t-loop-saved-title">
+              T ĐÃ LƯU
+            </div>
+
+            ${savedTLoops
+              .map(
+                (item, tIndex) => `
+                  <button
+                    class="t-loop-saved-btn${activeSavedTLoopId === item.id ? " active" : ""}"
+                    data-action="play-t-loop"
+                    data-parent-id="${loop.id}"
+                    data-t-id="${item.id}"
+                    title="Nghe lại loop T${tIndex + 1}"
+                  >
+                    T${tIndex + 1}
+                    <span>
+                      ${formatLoopTime(item.start)}-${formatLoopTime(item.end)}
+                    </span>
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+        `
+        : "";
+
     const combineButton =
       !isCombo(loop) &&
       isSingleLoopReady(loop)
@@ -797,6 +913,8 @@ function renderLoops() {
       <div class="loop-time">
         ${timeText}
       </div>
+
+      ${savedTLoopsHtml}
 
       ${combineButton}
 
@@ -1236,6 +1354,7 @@ function resetSubtitles(status = "Chưa tải phụ đề") {
   sentenceLoopEnd = null;
   sentenceLoopCueStart = -1;
   sentenceLoopCueEnd = -1;
+  activeSavedTLoopId = null;
 
   transcriptCues = [];
   currentCueIndex = -1;
@@ -1699,21 +1818,25 @@ function toggleSentenceLoop() {
     return;
   }
 
-  // T3: đang loop T -> thoát loop T nhưng GIỮ mốc đã lưu.
+  // T3: đang loop T -> thoát loop T.
+  // Loop vừa tạo vẫn nằm trong danh sách T đã lưu.
   if (sentenceLoopActive) {
     sentenceLoopActive = false;
     sentenceLoopSetting = false;
-
+    sentenceLoopStart = null;
+    sentenceLoopEnd = null;
+    activeSavedTLoopId = null;
     suspendAutoLoop = false;
 
+    renderLoops();
+
     setError(
-      "T • đã thoát loop T, mốc T vẫn được lưu."
+      "T • đã thoát loop T. Nhấn T lần nữa để tạo loop T mới."
     );
     return;
   }
 
-  // Nếu đang ở bước chọn END T:
-  // T2 = lấy thời gian hiện tại làm END và bắt đầu loop.
+  // T2: đang chọn END -> chốt END, lưu thành một loop T mới và bắt đầu lặp.
   if (sentenceLoopSetting) {
     const end = clamp(
       player.getCurrentTime()
@@ -1754,49 +1877,37 @@ function toggleSentenceLoop() {
     }
 
     sentenceLoopEnd = safeEnd;
-    sentenceLoopSetting = false;
-    sentenceLoopActive = true;
 
-    // Lưu T loop vào chính loop hiện tại.
+    const saved =
+      getSavedTLoops(loop);
+
+    const newTLoop = {
+      id:
+        crypto.randomUUID
+          ? crypto.randomUUID()
+          : `t-${Date.now()}-${Math.random()}`,
+      start: sentenceLoopStart,
+      end: sentenceLoopEnd,
+      createdAt: Date.now()
+    };
+
+    const nextSaved = [
+      ...saved,
+      newTLoop
+    ];
+
     updateLoop(loop.id, {
-      tLoopStart: sentenceLoopStart,
-      tLoopEnd: sentenceLoopEnd
+      tLoops: nextSaved,
+      // Xóa field cũ nếu loop từng được tạo ở bản thử nghiệm trước.
+      tLoopStart: null,
+      tLoopEnd: null
     });
 
-    suspendAutoLoop = false;
-    currentCueIndex = -1;
-
-    player.seekTo(
-      sentenceLoopStart,
-      true
-    );
-    player.playVideo();
-
-    updateSubtitleForTime(
-      sentenceLoopStart,
-      true
-    );
-
-    setError(
-      `T • LOOP ${formatTime(sentenceLoopStart)} → ${formatTime(sentenceLoopEnd)}`
-    );
-    return;
-  }
-
-  // T4: đã có loop T lưu sẵn -> bật lại đúng loop đó.
-  if (
-    Number.isFinite(loop.tLoopStart) &&
-    Number.isFinite(loop.tLoopEnd) &&
-    loop.tLoopEnd > loop.tLoopStart
-  ) {
-    sentenceLoopStart =
-      loop.tLoopStart;
-
-    sentenceLoopEnd =
-      loop.tLoopEnd;
-
-    sentenceLoopActive = true;
     sentenceLoopSetting = false;
+    sentenceLoopActive = true;
+    activeSavedTLoopId =
+      newTLoop.id;
+
     suspendAutoLoop = false;
     currentCueIndex = -1;
 
@@ -1804,6 +1915,7 @@ function toggleSentenceLoop() {
       sentenceLoopStart,
       true
     );
+
     player.playVideo();
 
     updateSubtitleForTime(
@@ -1811,13 +1923,17 @@ function toggleSentenceLoop() {
       true
     );
 
+    renderLoops();
+
     setError(
-      `T • bật lại loop đã lưu ${formatTime(sentenceLoopStart)} → ${formatTime(sentenceLoopEnd)}`
+      `T${nextSaved.length} • LOOP ${formatLoopTime(sentenceLoopStart)} - ${formatLoopTime(sentenceLoopEnd)}`
     );
     return;
   }
 
-  // T1: lấy START T giống logic tua theo cue của A/S.
+  // T1 / T4 / T7...:
+  // Mỗi lần không ở trạng thái chọn END hay đang loop
+  // thì T luôn BẮT ĐẦU MỘT LOOP T MỚI.
   const now = player.getCurrentTime();
   const cueIndex = findCueIndex(now);
 
@@ -1853,10 +1969,10 @@ function toggleSentenceLoop() {
   sentenceLoopEnd = null;
   sentenceLoopSetting = true;
   sentenceLoopActive = false;
+  activeSavedTLoopId = null;
 
-  // Tạm dừng auto-loop A-B để mày tự nghe và canh END T.
+  // Cho video chạy tự do để mày tự canh END T.
   suspendAutoLoop = true;
-
   currentCueIndex = -1;
 
   player.seekTo(
@@ -1872,7 +1988,7 @@ function toggleSentenceLoop() {
   );
 
   setError(
-    `T • START ${formatTime(sentenceLoopStart)} • nghe tới chỗ muốn dừng rồi nhấn T lần nữa`
+    `T • START ${formatLoopTime(sentenceLoopStart)} • tới chỗ muốn dừng thì nhấn T lần nữa`
   );
 }
 
@@ -2138,6 +2254,11 @@ els.savedLoops.addEventListener("click", (e) => {
 
   if (action === "delete") {
     deleteLoop(id);
+  } else if (action === "play-t-loop") {
+    playSavedTLoop(
+      target.dataset.parentId,
+      target.dataset.tId
+    );
   } else if (action === "combine") {
     toggleCombineSelection(id);
   } else if (action === "select") {
