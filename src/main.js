@@ -28,6 +28,7 @@ let activeComboSegmentIndex = 0;
 
 // T = lặp riêng một câu hoàn chỉnh trong loop hiện tại.
 let sentenceLoopActive = false;
+let sentenceLoopSetting = false;
 let sentenceLoopStart = null;
 let sentenceLoopEnd = null;
 let sentenceLoopCueStart = -1;
@@ -457,6 +458,8 @@ function createNewLoop() {
     start: null,
     end: null,
     speed: playbackSpeed,
+    tLoopStart: null,
+    tLoopEnd: null,
     vocab: [],
     vocabStatus: "waiting",
     vocabSignature: null,
@@ -468,6 +471,10 @@ function createNewLoop() {
   saveAllLoops(items);
 
   activeLoopId = newLoop.id;
+  sentenceLoopActive = false;
+  sentenceLoopSetting = false;
+  sentenceLoopStart = null;
+  sentenceLoopEnd = null;
   suspendAutoLoop = true;
   activeComboSegmentIndex = 0;
   lastLiveSidebarSecond = -1;
@@ -478,6 +485,7 @@ function createNewLoop() {
 
 function selectLoop(id, seekToStart = false) {
   sentenceLoopActive = false;
+  sentenceLoopSetting = false;
   sentenceLoopStart = null;
   sentenceLoopEnd = null;
   sentenceLoopCueStart = -1;
@@ -489,6 +497,16 @@ function selectLoop(id, seekToStart = false) {
   lastLiveSidebarSecond = -1;
 
   const loop = getActiveLoop();
+
+  if (
+    loop &&
+    Number.isFinite(loop.tLoopStart) &&
+    Number.isFinite(loop.tLoopEnd) &&
+    loop.tLoopEnd > loop.tLoopStart
+  ) {
+    sentenceLoopStart = loop.tLoopStart;
+    sentenceLoopEnd = loop.tLoopEnd;
+  }
 
   if (loop && Number.isFinite(loop.speed)) {
     playbackSpeed = loop.speed;
@@ -516,6 +534,10 @@ function deleteLoop(id) {
 
   if (activeLoopId === id) {
     activeLoopId = null;
+    sentenceLoopActive = false;
+    sentenceLoopSetting = false;
+    sentenceLoopStart = null;
+    sentenceLoopEnd = null;
     suspendAutoLoop = false;
     activeComboSegmentIndex = 0;
     lastLiveSidebarSecond = -1;
@@ -610,6 +632,10 @@ function createCombinedLoop() {
 
   combineSelection.clear();
   activeLoopId = combo.id;
+  sentenceLoopActive = false;
+  sentenceLoopSetting = false;
+  sentenceLoopStart = null;
+  sentenceLoopEnd = null;
   suspendAutoLoop = false;
   activeComboSegmentIndex = 0;
   lastLiveSidebarSecond = -1;
@@ -1205,6 +1231,7 @@ function toggleVietnameseSubtitleBlur() {
 
 function resetSubtitles(status = "Chưa tải phụ đề") {
   sentenceLoopActive = false;
+  sentenceLoopSetting = false;
   sentenceLoopStart = null;
   sentenceLoopEnd = null;
   sentenceLoopCueStart = -1;
@@ -1658,24 +1685,8 @@ function findShortLoopBounds() {
 function toggleSentenceLoop() {
   if (!player || !transcriptCues.length) {
     setError(
-      "Video chưa có phụ đề để lặp theo cụm."
+      "Video chưa có phụ đề để đặt loop T."
     );
-    return;
-  }
-
-  // Bấm T lần nữa = tắt Phrase Loop,
-  // quay về loop A-B / Combine bình thường.
-  if (sentenceLoopActive) {
-    sentenceLoopActive = false;
-    sentenceLoopStart = null;
-    sentenceLoopEnd = null;
-    sentenceLoopCueStart = -1;
-    sentenceLoopCueEnd = -1;
-
-    suspendAutoLoop =
-      !isLoopReady(getActiveLoop());
-
-    setError("");
     return;
   }
 
@@ -1683,28 +1694,176 @@ function toggleSentenceLoop() {
 
   if (!isLoopReady(loop)) {
     setError(
-      "Hãy hoàn tất START / END trước khi dùng T."
+      "Hãy hoàn tất START / END của loop chính trước."
     );
     return;
   }
 
-  const bounds = findShortLoopBounds();
+  // T3: đang loop T -> thoát loop T nhưng GIỮ mốc đã lưu.
+  if (sentenceLoopActive) {
+    sentenceLoopActive = false;
+    sentenceLoopSetting = false;
 
-  if (!bounds) {
-    setError("Không xác định được cụm tại vị trí này.");
+    suspendAutoLoop = false;
+
+    setError(
+      "T • đã thoát loop T, mốc T vẫn được lưu."
+    );
     return;
   }
 
-  sentenceLoopActive = true;
-  sentenceLoopStart = bounds.start;
-  sentenceLoopEnd = bounds.end;
-  sentenceLoopCueStart = bounds.startIndex;
-  sentenceLoopCueEnd = bounds.endIndex;
+  // Nếu đang ở bước chọn END T:
+  // T2 = lấy thời gian hiện tại làm END và bắt đầu loop.
+  if (sentenceLoopSetting) {
+    const end = clamp(
+      player.getCurrentTime()
+    );
 
-  suspendAutoLoop = false;
+    if (
+      !Number.isFinite(sentenceLoopStart) ||
+      end <= sentenceLoopStart + 0.12
+    ) {
+      setError(
+        "END T phải nằm sau START T."
+      );
+      return;
+    }
+
+    const segments = getLoopSegments(loop);
+    const activeSegment =
+      segments.length === 2
+        ? (
+            segments[activeComboSegmentIndex] ||
+            segments[0]
+          )
+        : segments[0];
+
+    const safeEnd = Math.min(
+      end,
+      activeSegment.end - 0.01
+    );
+
+    if (
+      safeEnd <=
+      sentenceLoopStart + 0.12
+    ) {
+      setError(
+        "END T quá gần START T."
+      );
+      return;
+    }
+
+    sentenceLoopEnd = safeEnd;
+    sentenceLoopSetting = false;
+    sentenceLoopActive = true;
+
+    // Lưu T loop vào chính loop hiện tại.
+    updateLoop(loop.id, {
+      tLoopStart: sentenceLoopStart,
+      tLoopEnd: sentenceLoopEnd
+    });
+
+    suspendAutoLoop = false;
+    currentCueIndex = -1;
+
+    player.seekTo(
+      sentenceLoopStart,
+      true
+    );
+    player.playVideo();
+
+    updateSubtitleForTime(
+      sentenceLoopStart,
+      true
+    );
+
+    setError(
+      `T • LOOP ${formatTime(sentenceLoopStart)} → ${formatTime(sentenceLoopEnd)}`
+    );
+    return;
+  }
+
+  // T4: đã có loop T lưu sẵn -> bật lại đúng loop đó.
+  if (
+    Number.isFinite(loop.tLoopStart) &&
+    Number.isFinite(loop.tLoopEnd) &&
+    loop.tLoopEnd > loop.tLoopStart
+  ) {
+    sentenceLoopStart =
+      loop.tLoopStart;
+
+    sentenceLoopEnd =
+      loop.tLoopEnd;
+
+    sentenceLoopActive = true;
+    sentenceLoopSetting = false;
+    suspendAutoLoop = false;
+    currentCueIndex = -1;
+
+    player.seekTo(
+      sentenceLoopStart,
+      true
+    );
+    player.playVideo();
+
+    updateSubtitleForTime(
+      sentenceLoopStart,
+      true
+    );
+
+    setError(
+      `T • bật lại loop đã lưu ${formatTime(sentenceLoopStart)} → ${formatTime(sentenceLoopEnd)}`
+    );
+    return;
+  }
+
+  // T1: lấy START T giống logic tua theo cue của A/S.
+  const now = player.getCurrentTime();
+  const cueIndex = findCueIndex(now);
+
+  if (cueIndex < 0) {
+    setError(
+      "Không xác định được đầu câu hiện tại."
+    );
+    return;
+  }
+
+  const segments = getLoopSegments(loop);
+  const activeSegment =
+    segments.length === 2
+      ? (
+          segments[activeComboSegmentIndex] ||
+          segments[0]
+        )
+      : segments[0];
+
+  let start =
+    transcriptCues[cueIndex].start +
+    0.01;
+
+  start = Math.max(
+    activeSegment.start + 0.01,
+    Math.min(
+      start,
+      activeSegment.end - 0.15
+    )
+  );
+
+  sentenceLoopStart = start;
+  sentenceLoopEnd = null;
+  sentenceLoopSetting = true;
+  sentenceLoopActive = false;
+
+  // Tạm dừng auto-loop A-B để mày tự nghe và canh END T.
+  suspendAutoLoop = true;
+
   currentCueIndex = -1;
 
-  player.seekTo(sentenceLoopStart, true);
+  player.seekTo(
+    sentenceLoopStart,
+    true
+  );
+
   player.playVideo();
 
   updateSubtitleForTime(
@@ -1712,20 +1871,14 @@ function toggleSentenceLoop() {
     true
   );
 
-  const phraseText =
-    String(bounds.phraseText || "")
-      .replace(/\s+/g, " ")
-      .trim();
-
   setError(
-    phraseText
-      ? `T • đang lặp cụm: ${phraseText}`
-      : "T • đang lặp cụm hiện tại"
+    `T • START ${formatTime(sentenceLoopStart)} • nghe tới chỗ muốn dừng rồi nhấn T lần nữa`
   );
 }
 
 function navigateSentence(direction) {
   sentenceLoopActive = false;
+  sentenceLoopSetting = false;
   sentenceLoopStart = null;
   sentenceLoopEnd = null;
   sentenceLoopCueStart = -1;
@@ -1831,13 +1984,18 @@ function startMonitor() {
 
     const loop = getActiveLoop();
 
+    // Trong lúc T1 -> T2, cho video chạy tự do để người dùng tự canh END.
+    if (sentenceLoopSetting) {
+      return;
+    }
+
     // T Sentence Loop có ưu tiên cao nhất.
     if (
       sentenceLoopActive &&
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.05) {
+      if (current >= sentenceLoopEnd - 0.04) {
         player.seekTo(
           sentenceLoopStart,
           true
