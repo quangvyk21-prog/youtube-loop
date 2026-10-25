@@ -1533,8 +1533,7 @@ function findCompleteSentenceBounds(cueIndex) {
 
   const segment = getActivePlaybackSegment();
   const segmentStart = segment?.start ?? 0;
-  const segmentEnd =
-    segment?.end ?? getDuration();
+  const segmentEnd = segment?.end ?? getDuration();
 
   const cue = transcriptCues[cueIndex];
   if (!cue) return null;
@@ -1542,21 +1541,24 @@ function findCompleteSentenceBounds(cueIndex) {
   const text = String(cue.text || "").trim();
   if (!text) return null;
 
-  const cueStart = Math.max(
-    segmentStart,
-    cue.start
-  );
+  const cueStart = Math.max(segmentStart, cue.start);
+  const cueEnd = Math.min(segmentEnd, cue.end);
+  const cueDuration = Math.max(0.2, cueEnd - cueStart);
 
-  const cueEnd = Math.min(
-    segmentEnd,
-    cue.end
-  );
+  // Tách cue thành các cụm ngắn theo dấu câu.
+  const phraseMatches = [
+    ...text.matchAll(/[^,;:.!?]+[,;:.!?]?/g)
+  ];
 
-  const cueDuration =
-    Math.max(0.15, cueEnd - cueStart);
+  if (!phraseMatches.length) return null;
+
+  const words = text
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!words.length) return null;
 
   let now = cueStart;
-
   try {
     now = player.getCurrentTime();
   } catch {}
@@ -1564,90 +1566,74 @@ function findCompleteSentenceBounds(cueIndex) {
   const timeRatio = Math.max(
     0,
     Math.min(
-      1,
+      0.999,
       (now - cueStart) / cueDuration
     )
   );
 
-  // Ước lượng vị trí chữ đang được nói trong cue.
-  const cursorChar = Math.max(
-    0,
-    Math.min(
-      text.length - 1,
-      Math.floor(timeRatio * text.length)
-    )
+  // Ước lượng vị trí hiện tại theo TỪ, không theo ký tự.
+  const currentWordIndex = Math.min(
+    words.length - 1,
+    Math.floor(timeRatio * words.length)
   );
 
-  // Các ranh giới cụm ngắn.
-  // Mỗi dấu , ; : . ? ! được xem như điểm kết một phrase.
-  const boundaries = [0];
+  let phraseStartWord = 0;
+  let phraseEndWord = words.length;
+  let runningWord = 0;
+  let phraseText = text;
 
-  for (let i = 0; i < text.length; i++) {
-    if (/[,:;.!?]/.test(text[i])) {
-      boundaries.push(i + 1);
-    }
-  }
+  for (const match of phraseMatches) {
+    const part = String(match[0] || "").trim();
+    const partWords = part
+      .split(/\s+/)
+      .filter(Boolean);
 
-  if (
-    boundaries[boundaries.length - 1] !==
-    text.length
-  ) {
-    boundaries.push(text.length);
-  }
-
-  let phraseStartChar = 0;
-  let phraseEndChar = text.length;
-
-  for (
-    let i = 0;
-    i < boundaries.length - 1;
-    i++
-  ) {
-    const a = boundaries[i];
-    const b = boundaries[i + 1];
+    const nextRunning =
+      runningWord + partWords.length;
 
     if (
-      cursorChar >= a &&
-      cursorChar < b
+      currentWordIndex >= runningWord &&
+      currentWordIndex < nextRunning
     ) {
-      phraseStartChar = a;
-      phraseEndChar = b;
+      phraseStartWord = runningWord;
+      phraseEndWord = nextRunning;
+      phraseText = part;
       break;
     }
-  }
 
-  // Bỏ khoảng trắng đầu cụm.
-  while (
-    phraseStartChar < phraseEndChar &&
-    /\s/.test(text[phraseStartChar])
-  ) {
-    phraseStartChar++;
+    runningWord = nextRunning;
   }
 
   const startRatio =
-    phraseStartChar / text.length;
+    phraseStartWord / words.length;
 
   const endRatio =
-    phraseEndChar / text.length;
+    phraseEndWord / words.length;
 
-  // Nội suy timestamp trong chính cue theo vị trí ký tự.
-  // Không kéo cue trước/sau.
   let startTime =
-    cueStart +
-    cueDuration * startRatio;
+    cueStart + cueDuration * startRatio;
 
   let endTime =
-    cueStart +
-    cueDuration * endRatio;
+    cueStart + cueDuration * endRatio;
 
-  // Buffer chống dính âm phrase trước/sau.
-  startTime += 0.035;
-  endTime -= 0.18;
+  // QUAN TRỌNG:
+  // Caption timing thường trễ hơn lời nói thật.
+  // Cắt sớm rõ rệt để không lố qua dấu phẩy/chấm.
+  const endLead = Math.min(
+    0.55,
+    Math.max(
+      0.28,
+      cueDuration * 0.12
+    )
+  );
 
-  // Nếu phrase vẫn dài, giới hạn tối đa 3.2 giây.
+  startTime += 0.06;
+  endTime -= endLead;
+
+  // Phrase T phải ngắn.
   endTime = Math.min(
     endTime,
-    startTime + 3.2
+    startTime + 2.4
   );
 
   const start = Math.max(
@@ -1669,12 +1655,7 @@ function findCompleteSentenceBounds(cueIndex) {
     end,
     startIndex: cueIndex,
     endIndex: cueIndex,
-    phraseText: text
-      .slice(
-        phraseStartChar,
-        phraseEndChar
-      )
-      .trim()
+    phraseText: phraseText.trim()
   };
 }
 
@@ -1865,7 +1846,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.08) {
+      if (current >= sentenceLoopEnd - 0.12) {
         player.seekTo(
           sentenceLoopStart,
           true
