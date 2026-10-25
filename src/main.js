@@ -1544,32 +1544,31 @@ function findCompleteSentenceBounds(cueIndex) {
   let startIndex = cueIndex;
   let endIndex = cueIndex;
 
-  // Lùi tối đa 2 cue để tìm đầu cụm gần nhất.
-  for (
-    let i = cueIndex - 1;
-    i >= 0 &&
-    cueIndex - i < MAX_CUES;
-    i--
+  // Tập trung vào cụm NGẮN chứa vị trí hiện tại.
+  // Không kéo ngược cả vế trước dấu phẩy nếu người dùng
+  // đang ở cụm sau dấu phẩy.
+  //
+  // Chỉ lùi 1 cue khi cue trước KHÔNG phải điểm ngắt
+  // và khoảng nghỉ giữa 2 cue rất nhỏ.
+  const previousCue =
+    transcriptCues[cueIndex - 1];
+
+  if (
+    previousCue &&
+    previousCue.end > segmentStart
   ) {
-    const previous = transcriptCues[i];
-    const current = transcriptCues[i + 1];
-
-    if (current.start < segmentStart) break;
-
     const gap =
-      current.start - previous.end;
+      transcriptCues[cueIndex].start -
+      previousCue.end;
 
     if (
-      cueEndsPhrase(previous.text) ||
-      gap > GAP_LIMIT ||
-      previous.end <= segmentStart ||
+      !cueEndsPhrase(previousCue.text) &&
+      gap <= GAP_LIMIT &&
       transcriptCues[cueIndex].start -
-        previous.start > MAX_DURATION
+        previousCue.start <= 2.2
     ) {
-      break;
+      startIndex = cueIndex - 1;
     }
-
-    startIndex = i;
   }
 
   // Tiến tối đa 2 cue để tìm điểm kết cụm gần nhất.
