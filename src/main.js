@@ -1499,8 +1499,12 @@ function updateSubtitleForTime(time, force = false) {
   translateCue(cue, index);
 }
 
-function cueEndsSentence(text = "") {
-  return /[.!?]["')\]]*$/.test(String(text).trim());
+function cueEndsPhrase(text = "") {
+  // Tách theo nhịp nói ngắn: dấu phẩy/chấm phẩy/hai chấm
+  // hoặc kết thúc câu.
+  return /[,;:.!?]["')\]]*$/.test(
+    String(text).trim()
+  );
 }
 
 function getActivePlaybackSegment() {
@@ -1534,16 +1538,16 @@ function findCompleteSentenceBounds(cueIndex) {
   const segmentEnd =
     segment?.end ?? getDuration();
 
-  const GAP_LIMIT = 0.75;
-  const MAX_CUES = 12;
+  // Phrase loop cố tình ngắn để luyện nghe/shadowing.
+  const GAP_LIMIT = 0.42;
+  const MAX_CUES = 5;
+  const MAX_DURATION = 6.5;
 
   let startIndex = cueIndex;
   let endIndex = cueIndex;
 
-  // Đi lùi tới đầu câu:
-  // - cue trước kết thúc bằng . ? !
-  // - có khoảng nghỉ đủ lớn
-  // - hoặc chạm START của loop.
+  // Tìm đầu cụm gần nhất:
+  // dấu , ; : . ? ! hoặc một khoảng nghỉ rõ.
   for (
     let i = cueIndex - 1;
     i >= 0 &&
@@ -1559,9 +1563,11 @@ function findCompleteSentenceBounds(cueIndex) {
       current.start - previous.end;
 
     if (
-      cueEndsSentence(previous.text) ||
+      cueEndsPhrase(previous.text) ||
       gap > GAP_LIMIT ||
-      previous.end <= segmentStart
+      previous.end <= segmentStart ||
+      transcriptCues[cueIndex].end -
+        previous.start > MAX_DURATION
     ) {
       break;
     }
@@ -1569,10 +1575,7 @@ function findCompleteSentenceBounds(cueIndex) {
     startIndex = i;
   }
 
-  // Đi tới cuối câu:
-  // - cue hiện tại kết thúc bằng . ? !
-  // - có khoảng nghỉ đủ lớn
-  // - hoặc chạm END của loop.
+  // Tìm cuối cụm gần nhất.
   for (
     let i = cueIndex;
     i < transcriptCues.length &&
@@ -1585,7 +1588,7 @@ function findCompleteSentenceBounds(cueIndex) {
 
     endIndex = i;
 
-    if (cueEndsSentence(current.text)) {
+    if (cueEndsPhrase(current.text)) {
       break;
     }
 
@@ -1596,13 +1599,16 @@ function findCompleteSentenceBounds(cueIndex) {
 
     if (
       gap > GAP_LIMIT ||
-      next.start >= segmentEnd
+      next.start >= segmentEnd ||
+      next.end -
+        transcriptCues[startIndex].start >
+          MAX_DURATION
     ) {
       break;
     }
   }
 
-  // Không cho câu vượt ra ngoài loop đang chọn.
+  // Không cho cụm vượt START / END của loop.
   while (
     startIndex < cueIndex &&
     transcriptCues[startIndex].end <= segmentStart
@@ -1626,16 +1632,14 @@ function findCompleteSentenceBounds(cueIndex) {
     return null;
   }
 
-  // Buffer rất nhỏ để tránh dính âm của câu kế bên,
-  // nhưng không cắt mất âm đầu/cuối như buffer lớn.
   const start = Math.max(
-    segmentStart + 0.02,
-    firstCue.start + 0.02
+    segmentStart + 0.015,
+    firstCue.start + 0.015
   );
 
   const end = Math.min(
-    segmentEnd - 0.02,
-    lastCue.end - 0.03
+    segmentEnd - 0.015,
+    lastCue.end - 0.02
   );
 
   if (!(end > start + 0.08)) {
@@ -1653,12 +1657,12 @@ function findCompleteSentenceBounds(cueIndex) {
 function toggleSentenceLoop() {
   if (!player || !transcriptCues.length) {
     setError(
-      "Video chưa có phụ đề để lặp theo câu."
+      "Video chưa có phụ đề để lặp theo cụm."
     );
     return;
   }
 
-  // Bấm T lần nữa = tắt Sentence Loop,
+  // Bấm T lần nữa = tắt Phrase Loop,
   // quay về loop A-B / Combine bình thường.
   if (sentenceLoopActive) {
     sentenceLoopActive = false;
@@ -1690,7 +1694,7 @@ function toggleSentenceLoop() {
 
   if (!bounds) {
     setError(
-      "Không xác định được trọn câu tại vị trí này."
+      "Không xác định được cụm ngắn tại vị trí này."
     );
     return;
   }
@@ -1701,7 +1705,6 @@ function toggleSentenceLoop() {
   sentenceLoopCueStart = bounds.startIndex;
   sentenceLoopCueEnd = bounds.endIndex;
 
-  // Khi T đang bật, Sentence Loop có ưu tiên cao hơn A-B.
   suspendAutoLoop = false;
   currentCueIndex = -1;
 
@@ -1713,7 +1716,7 @@ function toggleSentenceLoop() {
     true
   );
 
-  const sentenceText =
+  const phraseText =
     transcriptCues
       .slice(
         sentenceLoopCueStart,
@@ -1725,9 +1728,9 @@ function toggleSentenceLoop() {
       .trim();
 
   setError(
-    sentenceText
-      ? `T • đang lặp: ${sentenceText}`
-      : "T • đang lặp câu hiện tại"
+    phraseText
+      ? `T • đang lặp cụm: ${phraseText}`
+      : "T • đang lặp cụm hiện tại"
   );
 }
 
