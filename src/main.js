@@ -1536,117 +1536,48 @@ function findCompleteSentenceBounds(cueIndex) {
   const segmentEnd =
     segment?.end ?? getDuration();
 
-  // T cố tình lặp NGẮN.
-  const GAP_LIMIT = 0.28;
-  const MAX_CUES = 3;
-  const MAX_DURATION = 4.0;
+  const cue = transcriptCues[cueIndex];
+  if (!cue) return null;
 
+  // T phải NGẮN:
+  // ưu tiên chỉ đúng cue hiện tại.
+  // Không tự kéo cue trước hoặc cue sau vào nữa.
   let startIndex = cueIndex;
   let endIndex = cueIndex;
 
-  // Tập trung vào cụm NGẮN chứa vị trí hiện tại.
-  // Không kéo ngược cả vế trước dấu phẩy nếu người dùng
-  // đang ở cụm sau dấu phẩy.
-  //
-  // Chỉ lùi 1 cue khi cue trước KHÔNG phải điểm ngắt
-  // và khoảng nghỉ giữa 2 cue rất nhỏ.
-  const previousCue =
-    transcriptCues[cueIndex - 1];
+  const nextCue =
+    transcriptCues[cueIndex + 1];
 
-  if (
-    previousCue &&
-    previousCue.end > segmentStart
-  ) {
-    const gap =
-      transcriptCues[cueIndex].start -
-      previousCue.end;
-
-    if (
-      !cueEndsPhrase(previousCue.text) &&
-      gap <= GAP_LIMIT &&
-      transcriptCues[cueIndex].start -
-        previousCue.start <= 2.2
-    ) {
-      startIndex = cueIndex - 1;
-    }
-  }
-
-  // Tiến tối đa 2 cue để tìm điểm kết cụm gần nhất.
-  for (
-    let i = cueIndex;
-    i < transcriptCues.length &&
-    i - cueIndex < MAX_CUES;
-    i++
-  ) {
-    const current = transcriptCues[i];
-    const next =
-      transcriptCues[i + 1];
-
-    endIndex = i;
-
-    if (cueEndsPhrase(current.text)) {
-      break;
-    }
-
-    if (!next) break;
-
-    const gap =
-      next.start - current.end;
-
-    if (
-      gap > GAP_LIMIT ||
-      next.start >= segmentEnd ||
-      next.start -
-        transcriptCues[startIndex].start >
-          MAX_DURATION
-    ) {
-      break;
-    }
-  }
-
-  const firstCue =
-    transcriptCues[startIndex];
-  const lastCue =
-    transcriptCues[endIndex];
-
-  if (!firstCue || !lastCue) {
-    return null;
-  }
-
-  // Điểm bắt đầu: sát cue đầu của cụm.
+  // Bắt đầu sát đầu cue hiện tại.
   const start = Math.max(
-    segmentStart + 0.01,
-    firstCue.start + 0.01
+    segmentStart + 0.015,
+    cue.start + 0.015
   );
 
-  // QUAN TRỌNG:
-  // Không dùng lastCue.end làm mốc chính vì nhiều transcript
-  // để duration kéo dài sang câu sau.
-  // Nếu có cue kế tiếp thì dừng TRƯỚC khi cue kế tiếp bắt đầu.
-  const nextCue =
-    transcriptCues[endIndex + 1];
-
-  let rawEnd = lastCue.end - 0.08;
+  // Điểm dừng:
+  // - ưu tiên trước cue kế tiếp
+  // - nếu cue.end dài hơn thì vẫn không cho ăn sang cue sau
+  let endCandidate = cue.end - 0.10;
 
   if (
     nextCue &&
     Number.isFinite(nextCue.start)
   ) {
-    rawEnd = Math.min(
-      rawEnd,
-      nextCue.start - 0.22
+    endCandidate = Math.min(
+      endCandidate,
+      nextCue.start - 0.28
     );
   }
 
-  // Không cho T dài quá 4 giây dù transcript chia cue xấu.
-  rawEnd = Math.min(
-    rawEnd,
-    start + MAX_DURATION
+  // T không được dài quá 2.8 giây.
+  endCandidate = Math.min(
+    endCandidate,
+    start + 2.8
   );
 
   const end = Math.min(
-    segmentEnd - 0.01,
-    rawEnd
+    segmentEnd - 0.015,
+    endCandidate
   );
 
   if (!(end > start + 0.12)) {
@@ -1854,7 +1785,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.07) {
+      if (current >= sentenceLoopEnd - 0.12) {
         player.seekTo(
           sentenceLoopStart,
           true
