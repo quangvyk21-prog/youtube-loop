@@ -668,6 +668,25 @@ function deleteSavedTLoop(loopId, tLoopId) {
   setError("Đã xóa loop T.");
 }
 
+function cancelTLoopSetting() {
+  if (!sentenceLoopSetting) return;
+
+  sentenceLoopSetting = false;
+  sentenceLoopActive = false;
+  sentenceLoopStart = null;
+  sentenceLoopEnd = null;
+  activeSavedTLoopId = null;
+
+  // Quay về auto-loop chính bình thường.
+  suspendAutoLoop =
+    !isLoopReady(getActiveLoop());
+
+  renderLoops();
+  updateLoopUi();
+
+  setError("Đã hủy tạo loop T.");
+}
+
 function updateLoop(loopId, patch) {
   const items = loadAllLoops().map(item => item.id === loopId ? { ...item, ...patch } : item);
   saveAllLoops(items);
@@ -888,6 +907,27 @@ function renderLoops() {
           ? "ACTIVE"
           : "LOOP";
 
+    const tLoopDraftHtml =
+      active &&
+      sentenceLoopSetting &&
+      Number.isFinite(sentenceLoopStart)
+        ? `
+          <div class="t-loop-draft">
+            <span>
+              T START ${formatLoopTime(sentenceLoopStart)}
+            </span>
+
+            <button
+              class="t-loop-draft-cancel"
+              data-action="cancel-t-loop"
+              title="Hủy tạo loop T"
+            >
+              ×
+            </button>
+          </div>
+        `
+        : "";
+
     const savedTLoops =
       getSavedTLoops(loop);
 
@@ -962,6 +1002,8 @@ function renderLoops() {
       <div class="loop-time">
         ${timeText}
       </div>
+
+      ${tLoopDraftHtml}
 
       ${savedTLoopsHtml}
 
@@ -2020,6 +2062,8 @@ function toggleSentenceLoop() {
   sentenceLoopActive = false;
   activeSavedTLoopId = null;
 
+  renderLoops();
+
   // Cho video chạy tự do để mày tự canh END T.
   suspendAutoLoop = true;
   currentCueIndex = -1;
@@ -2303,6 +2347,8 @@ els.savedLoops.addEventListener("click", (e) => {
 
   if (action === "delete") {
     deleteLoop(id);
+  } else if (action === "cancel-t-loop") {
+    cancelTLoopSetting();
   } else if (action === "delete-t-loop") {
     deleteSavedTLoop(
       target.dataset.parentId,
