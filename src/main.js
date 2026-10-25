@@ -1539,56 +1539,142 @@ function findCompleteSentenceBounds(cueIndex) {
   const cue = transcriptCues[cueIndex];
   if (!cue) return null;
 
-  // T phải NGẮN:
-  // ưu tiên chỉ đúng cue hiện tại.
-  // Không tự kéo cue trước hoặc cue sau vào nữa.
-  let startIndex = cueIndex;
-  let endIndex = cueIndex;
+  const text = String(cue.text || "").trim();
+  if (!text) return null;
 
-  const nextCue =
-    transcriptCues[cueIndex + 1];
-
-  // Bắt đầu sát đầu cue hiện tại.
-  const start = Math.max(
-    segmentStart + 0.015,
-    cue.start + 0.015
+  const cueStart = Math.max(
+    segmentStart,
+    cue.start
   );
 
-  // Điểm dừng:
-  // - ưu tiên trước cue kế tiếp
-  // - nếu cue.end dài hơn thì vẫn không cho ăn sang cue sau
-  let endCandidate = cue.end - 0.10;
+  const cueEnd = Math.min(
+    segmentEnd,
+    cue.end
+  );
 
-  if (
-    nextCue &&
-    Number.isFinite(nextCue.start)
-  ) {
-    endCandidate = Math.min(
-      endCandidate,
-      nextCue.start - 0.28
-    );
+  const cueDuration =
+    Math.max(0.15, cueEnd - cueStart);
+
+  let now = cueStart;
+
+  try {
+    now = player.getCurrentTime();
+  } catch {}
+
+  const timeRatio = Math.max(
+    0,
+    Math.min(
+      1,
+      (now - cueStart) / cueDuration
+    )
+  );
+
+  // Ước lượng vị trí chữ đang được nói trong cue.
+  const cursorChar = Math.max(
+    0,
+    Math.min(
+      text.length - 1,
+      Math.floor(timeRatio * text.length)
+    )
+  );
+
+  // Các ranh giới cụm ngắn.
+  // Mỗi dấu , ; : . ? ! được xem như điểm kết một phrase.
+  const boundaries = [0];
+
+  for (let i = 0; i < text.length; i++) {
+    if (/[,:;.!?]/.test(text[i])) {
+      boundaries.push(i + 1);
+    }
   }
 
-  // T không được dài quá 2.8 giây.
-  endCandidate = Math.min(
-    endCandidate,
-    start + 2.8
+  if (
+    boundaries[boundaries.length - 1] !==
+    text.length
+  ) {
+    boundaries.push(text.length);
+  }
+
+  let phraseStartChar = 0;
+  let phraseEndChar = text.length;
+
+  for (
+    let i = 0;
+    i < boundaries.length - 1;
+    i++
+  ) {
+    const a = boundaries[i];
+    const b = boundaries[i + 1];
+
+    if (
+      cursorChar >= a &&
+      cursorChar < b
+    ) {
+      phraseStartChar = a;
+      phraseEndChar = b;
+      break;
+    }
+  }
+
+  // Bỏ khoảng trắng đầu cụm.
+  while (
+    phraseStartChar < phraseEndChar &&
+    /\s/.test(text[phraseStartChar])
+  ) {
+    phraseStartChar++;
+  }
+
+  const startRatio =
+    phraseStartChar / text.length;
+
+  const endRatio =
+    phraseEndChar / text.length;
+
+  // Nội suy timestamp trong chính cue theo vị trí ký tự.
+  // Không kéo cue trước/sau.
+  let startTime =
+    cueStart +
+    cueDuration * startRatio;
+
+  let endTime =
+    cueStart +
+    cueDuration * endRatio;
+
+  // Buffer chống dính âm phrase trước/sau.
+  startTime += 0.035;
+  endTime -= 0.18;
+
+  // Nếu phrase vẫn dài, giới hạn tối đa 3.2 giây.
+  endTime = Math.min(
+    endTime,
+    startTime + 3.2
+  );
+
+  const start = Math.max(
+    segmentStart + 0.01,
+    startTime
   );
 
   const end = Math.min(
-    segmentEnd - 0.015,
-    endCandidate
+    segmentEnd - 0.01,
+    endTime
   );
 
-  if (!(end > start + 0.12)) {
+  if (!(end > start + 0.15)) {
     return null;
   }
 
   return {
     start,
     end,
-    startIndex,
-    endIndex
+    startIndex: cueIndex,
+    endIndex: cueIndex,
+    phraseText: text
+      .slice(
+        phraseStartChar,
+        phraseEndChar
+      )
+      .trim()
   };
 }
 
@@ -1655,13 +1741,7 @@ function toggleSentenceLoop() {
   );
 
   const phraseText =
-    transcriptCues
-      .slice(
-        sentenceLoopCueStart,
-        sentenceLoopCueEnd + 1
-      )
-      .map(cue => cue.text)
-      .join(" ")
+    String(bounds.phraseText || "")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -1785,7 +1865,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.12) {
+      if (current >= sentenceLoopEnd - 0.08) {
         player.seekTo(
           sentenceLoopStart,
           true
