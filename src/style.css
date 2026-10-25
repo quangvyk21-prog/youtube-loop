@@ -819,3 +819,29 @@ kbd {
   border-color: #9ff8ee;
   background: rgba(159,248,238,.16);
 }
+
+
+.t-loop-saved-row {
+  display: grid;
+  grid-template-columns: 1fr 24px;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.t-loop-delete-btn {
+  width: 24px;
+  min-width: 24px;
+  border: 1px solid rgba(255,255,255,.20);
+  border-radius: 5px;
+  background: rgba(55,30,36,.88);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.t-loop-delete-btn:hover {
+  border-color: rgba(255,255,255,.55);
+  background: rgba(110,40,50,.92);
+}
