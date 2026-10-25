@@ -25,6 +25,13 @@ let vietnameseSubtitleBlurred = false;
 
 let suspendAutoLoop = false;
 let activeComboSegmentIndex = 0;
+
+// T = lặp riêng một câu hoàn chỉnh trong loop hiện tại.
+let sentenceLoopActive = false;
+let sentenceLoopStart = null;
+let sentenceLoopEnd = null;
+let sentenceLoopCueStart = -1;
+let sentenceLoopCueEnd = -1;
 const combineSelection = new Set();
 
 const STORAGE_KEY = "ytloop:v5:loops";
@@ -470,6 +477,12 @@ function createNewLoop() {
 }
 
 function selectLoop(id, seekToStart = false) {
+  sentenceLoopActive = false;
+  sentenceLoopStart = null;
+  sentenceLoopEnd = null;
+  sentenceLoopCueStart = -1;
+  sentenceLoopCueEnd = -1;
+
   activeLoopId = id;
   suspendAutoLoop = false;
   activeComboSegmentIndex = 0;
@@ -1191,6 +1204,12 @@ function toggleVietnameseSubtitleBlur() {
 }
 
 function resetSubtitles(status = "Chưa tải phụ đề") {
+  sentenceLoopActive = false;
+  sentenceLoopStart = null;
+  sentenceLoopEnd = null;
+  sentenceLoopCueStart = -1;
+  sentenceLoopCueEnd = -1;
+
   transcriptCues = [];
   currentCueIndex = -1;
   subtitleRequestToken += 1;
@@ -1480,7 +1499,245 @@ function updateSubtitleForTime(time, force = false) {
   translateCue(cue, index);
 }
 
+function cueEndsSentence(text = "") {
+  return /[.!?]["')\]]*$/.test(String(text).trim());
+}
+
+function getActivePlaybackSegment() {
+  const loop = getActiveLoop();
+  const segments = getLoopSegments(loop);
+
+  if (!isLoopReady(loop) || !segments.length) {
+    return null;
+  }
+
+  if (segments.length === 2) {
+    return (
+      segments[activeComboSegmentIndex] ||
+      segments[0]
+    );
+  }
+
+  return segments[0];
+}
+
+function findCompleteSentenceBounds(cueIndex) {
+  if (
+    cueIndex < 0 ||
+    cueIndex >= transcriptCues.length
+  ) {
+    return null;
+  }
+
+  const segment = getActivePlaybackSegment();
+  const segmentStart = segment?.start ?? 0;
+  const segmentEnd =
+    segment?.end ?? getDuration();
+
+  const GAP_LIMIT = 0.75;
+  const MAX_CUES = 12;
+
+  let startIndex = cueIndex;
+  let endIndex = cueIndex;
+
+  // Đi lùi tới đầu câu:
+  // - cue trước kết thúc bằng . ? !
+  // - có khoảng nghỉ đủ lớn
+  // - hoặc chạm START của loop.
+  for (
+    let i = cueIndex - 1;
+    i >= 0 &&
+    cueIndex - i < MAX_CUES;
+    i--
+  ) {
+    const previous = transcriptCues[i];
+    const current = transcriptCues[i + 1];
+
+    if (current.start < segmentStart) break;
+
+    const gap =
+      current.start - previous.end;
+
+    if (
+      cueEndsSentence(previous.text) ||
+      gap > GAP_LIMIT ||
+      previous.end <= segmentStart
+    ) {
+      break;
+    }
+
+    startIndex = i;
+  }
+
+  // Đi tới cuối câu:
+  // - cue hiện tại kết thúc bằng . ? !
+  // - có khoảng nghỉ đủ lớn
+  // - hoặc chạm END của loop.
+  for (
+    let i = cueIndex;
+    i < transcriptCues.length &&
+    i - cueIndex < MAX_CUES;
+    i++
+  ) {
+    const current = transcriptCues[i];
+    const next =
+      transcriptCues[i + 1];
+
+    endIndex = i;
+
+    if (cueEndsSentence(current.text)) {
+      break;
+    }
+
+    if (!next) break;
+
+    const gap =
+      next.start - current.end;
+
+    if (
+      gap > GAP_LIMIT ||
+      next.start >= segmentEnd
+    ) {
+      break;
+    }
+  }
+
+  // Không cho câu vượt ra ngoài loop đang chọn.
+  while (
+    startIndex < cueIndex &&
+    transcriptCues[startIndex].end <= segmentStart
+  ) {
+    startIndex++;
+  }
+
+  while (
+    endIndex > cueIndex &&
+    transcriptCues[endIndex].start >= segmentEnd
+  ) {
+    endIndex--;
+  }
+
+  const firstCue =
+    transcriptCues[startIndex];
+  const lastCue =
+    transcriptCues[endIndex];
+
+  if (!firstCue || !lastCue) {
+    return null;
+  }
+
+  // Buffer rất nhỏ để tránh dính âm của câu kế bên,
+  // nhưng không cắt mất âm đầu/cuối như buffer lớn.
+  const start = Math.max(
+    segmentStart + 0.02,
+    firstCue.start + 0.02
+  );
+
+  const end = Math.min(
+    segmentEnd - 0.02,
+    lastCue.end - 0.03
+  );
+
+  if (!(end > start + 0.08)) {
+    return null;
+  }
+
+  return {
+    start,
+    end,
+    startIndex,
+    endIndex
+  };
+}
+
+function toggleSentenceLoop() {
+  if (!player || !transcriptCues.length) {
+    setError(
+      "Video chưa có phụ đề để lặp theo câu."
+    );
+    return;
+  }
+
+  // Bấm T lần nữa = tắt Sentence Loop,
+  // quay về loop A-B / Combine bình thường.
+  if (sentenceLoopActive) {
+    sentenceLoopActive = false;
+    sentenceLoopStart = null;
+    sentenceLoopEnd = null;
+    sentenceLoopCueStart = -1;
+    sentenceLoopCueEnd = -1;
+
+    suspendAutoLoop =
+      !isLoopReady(getActiveLoop());
+
+    setError("");
+    return;
+  }
+
+  const loop = getActiveLoop();
+
+  if (!isLoopReady(loop)) {
+    setError(
+      "Hãy hoàn tất START / END trước khi dùng T."
+    );
+    return;
+  }
+
+  const now = player.getCurrentTime();
+  const cueIndex = findCueIndex(now);
+  const bounds =
+    findCompleteSentenceBounds(cueIndex);
+
+  if (!bounds) {
+    setError(
+      "Không xác định được trọn câu tại vị trí này."
+    );
+    return;
+  }
+
+  sentenceLoopActive = true;
+  sentenceLoopStart = bounds.start;
+  sentenceLoopEnd = bounds.end;
+  sentenceLoopCueStart = bounds.startIndex;
+  sentenceLoopCueEnd = bounds.endIndex;
+
+  // Khi T đang bật, Sentence Loop có ưu tiên cao hơn A-B.
+  suspendAutoLoop = false;
+  currentCueIndex = -1;
+
+  player.seekTo(sentenceLoopStart, true);
+  player.playVideo();
+
+  updateSubtitleForTime(
+    sentenceLoopStart,
+    true
+  );
+
+  const sentenceText =
+    transcriptCues
+      .slice(
+        sentenceLoopCueStart,
+        sentenceLoopCueEnd + 1
+      )
+      .map(cue => cue.text)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  setError(
+    sentenceText
+      ? `T • đang lặp: ${sentenceText}`
+      : "T • đang lặp câu hiện tại"
+  );
+}
+
 function navigateSentence(direction) {
+  sentenceLoopActive = false;
+  sentenceLoopStart = null;
+  sentenceLoopEnd = null;
+  sentenceLoopCueStart = -1;
+  sentenceLoopCueEnd = -1;
+
   if (!player || !transcriptCues.length) {
     setError("Video chưa có phụ đề để tua theo câu.");
     return;
@@ -1580,6 +1837,28 @@ function startMonitor() {
     }
 
     const loop = getActiveLoop();
+
+    // T Sentence Loop có ưu tiên cao nhất.
+    if (
+      sentenceLoopActive &&
+      Number.isFinite(sentenceLoopStart) &&
+      Number.isFinite(sentenceLoopEnd)
+    ) {
+      if (current >= sentenceLoopEnd) {
+        player.seekTo(
+          sentenceLoopStart,
+          true
+        );
+        player.playVideo();
+        currentCueIndex = -1;
+        updateSubtitleForTime(
+          sentenceLoopStart,
+          true
+        );
+      }
+
+      return;
+    }
 
     if (!suspendAutoLoop && isLoopReady(loop)) {
       const segments = getLoopSegments(loop);
@@ -1743,6 +2022,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key.toLowerCase() === "d") {
     e.preventDefault();
     navigateSentence("next");
+  } else if (e.key.toLowerCase() === "t") {
+    e.preventDefault();
+    toggleSentenceLoop();
   } else if (e.key.toLowerCase() === "q") {
     e.preventDefault();
     toggleEnglishSubtitleBlur();
