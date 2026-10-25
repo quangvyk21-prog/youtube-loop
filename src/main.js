@@ -1500,8 +1500,6 @@ function updateSubtitleForTime(time, force = false) {
 }
 
 function cueEndsPhrase(text = "") {
-  // Tách theo nhịp nói ngắn: dấu phẩy/chấm phẩy/hai chấm
-  // hoặc kết thúc câu.
   return /[,;:.!?]["')\]]*$/.test(
     String(text).trim()
   );
@@ -1538,16 +1536,15 @@ function findCompleteSentenceBounds(cueIndex) {
   const segmentEnd =
     segment?.end ?? getDuration();
 
-  // Phrase loop cố tình ngắn để luyện nghe/shadowing.
-  const GAP_LIMIT = 0.42;
-  const MAX_CUES = 5;
-  const MAX_DURATION = 6.5;
+  // T cố tình lặp NGẮN.
+  const GAP_LIMIT = 0.28;
+  const MAX_CUES = 3;
+  const MAX_DURATION = 4.0;
 
   let startIndex = cueIndex;
   let endIndex = cueIndex;
 
-  // Tìm đầu cụm gần nhất:
-  // dấu , ; : . ? ! hoặc một khoảng nghỉ rõ.
+  // Lùi tối đa 2 cue để tìm đầu cụm gần nhất.
   for (
     let i = cueIndex - 1;
     i >= 0 &&
@@ -1566,7 +1563,7 @@ function findCompleteSentenceBounds(cueIndex) {
       cueEndsPhrase(previous.text) ||
       gap > GAP_LIMIT ||
       previous.end <= segmentStart ||
-      transcriptCues[cueIndex].end -
+      transcriptCues[cueIndex].start -
         previous.start > MAX_DURATION
     ) {
       break;
@@ -1575,7 +1572,7 @@ function findCompleteSentenceBounds(cueIndex) {
     startIndex = i;
   }
 
-  // Tìm cuối cụm gần nhất.
+  // Tiến tối đa 2 cue để tìm điểm kết cụm gần nhất.
   for (
     let i = cueIndex;
     i < transcriptCues.length &&
@@ -1600,27 +1597,12 @@ function findCompleteSentenceBounds(cueIndex) {
     if (
       gap > GAP_LIMIT ||
       next.start >= segmentEnd ||
-      next.end -
+      next.start -
         transcriptCues[startIndex].start >
           MAX_DURATION
     ) {
       break;
     }
-  }
-
-  // Không cho cụm vượt START / END của loop.
-  while (
-    startIndex < cueIndex &&
-    transcriptCues[startIndex].end <= segmentStart
-  ) {
-    startIndex++;
-  }
-
-  while (
-    endIndex > cueIndex &&
-    transcriptCues[endIndex].start >= segmentEnd
-  ) {
-    endIndex--;
   }
 
   const firstCue =
@@ -1632,17 +1614,43 @@ function findCompleteSentenceBounds(cueIndex) {
     return null;
   }
 
+  // Điểm bắt đầu: sát cue đầu của cụm.
   const start = Math.max(
-    segmentStart + 0.015,
-    firstCue.start + 0.015
+    segmentStart + 0.01,
+    firstCue.start + 0.01
+  );
+
+  // QUAN TRỌNG:
+  // Không dùng lastCue.end làm mốc chính vì nhiều transcript
+  // để duration kéo dài sang câu sau.
+  // Nếu có cue kế tiếp thì dừng TRƯỚC khi cue kế tiếp bắt đầu.
+  const nextCue =
+    transcriptCues[endIndex + 1];
+
+  let rawEnd = lastCue.end;
+
+  if (
+    nextCue &&
+    Number.isFinite(nextCue.start)
+  ) {
+    rawEnd = Math.min(
+      rawEnd,
+      nextCue.start - 0.10
+    );
+  }
+
+  // Không cho T dài quá 4 giây dù transcript chia cue xấu.
+  rawEnd = Math.min(
+    rawEnd,
+    start + MAX_DURATION
   );
 
   const end = Math.min(
-    segmentEnd - 0.015,
-    lastCue.end - 0.02
+    segmentEnd - 0.01,
+    rawEnd
   );
 
-  if (!(end > start + 0.08)) {
+  if (!(end > start + 0.12)) {
     return null;
   }
 
