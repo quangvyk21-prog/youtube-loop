@@ -6,14 +6,185 @@ const fetchTranscript =
     transcriptPkg.YoutubeTranscript
   );
 
+function decodeEntities(text = "") {
+  return String(text)
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+      String.fromCodePoint(parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, dec) =>
+      String.fromCodePoint(parseInt(dec, 10))
+    );
+}
+
+function parseSrv3Words(xml = "") {
+  const words = [];
+
+  const pRegex =
+    /<p\s+([^>]*)>([\s\S]*?)<\/p>/g;
+
+  let pMatch;
+
+  while ((pMatch = pRegex.exec(xml)) !== null) {
+    const pAttrs = pMatch[1] || "";
+    const inner = pMatch[2] || "";
+
+    const pStartMatch =
+      pAttrs.match(/\bt="(\d+)"/);
+
+    const pDurationMatch =
+      pAttrs.match(/\bd="(\d+)"/);
+
+    if (!pStartMatch) continue;
+
+    const pStart =
+      Number(pStartMatch[1]) || 0;
+
+    const pDuration =
+      Number(pDurationMatch?.[1]) || 0;
+
+    const spans = [];
+    const sRegex =
+      /<s([^>]*)>([\s\S]*?)<\/s>/g;
+
+    let sMatch;
+
+    while ((sMatch = sRegex.exec(inner)) !== null) {
+      const attrs = sMatch[1] || "";
+
+      const rawText = decodeEntities(
+        String(sMatch[2] || "")
+          .replace(/<[^>]+>/g, "")
+      );
+
+      const text = rawText
+        .replace(/\s+/g, " ");
+
+      if (!text.trim()) continue;
+
+      const offsetMatch =
+        attrs.match(/\bt="(\d+)"/);
+
+      spans.push({
+        text,
+        offset:
+          Number(offsetMatch?.[1]) || 0
+      });
+    }
+
+    if (!spans.length) continue;
+
+    // Word-level SRV3 only counts if YouTube actually gave
+    // multiple timed spans. Plain untimed <s> is not enough.
+    const hasRealOffsets =
+      spans.some(
+        (span, index) =>
+          index > 0 && span.offset > 0
+      );
+
+    if (!hasRealOffsets) continue;
+
+    spans.forEach((span, index) => {
+      const start =
+        pStart + span.offset;
+
+      const nextOffset =
+        spans[index + 1]?.offset;
+
+      const paragraphEnd =
+        pStart + Math.max(80, pDuration);
+
+      const end =
+        Number.isFinite(nextOffset) &&
+        nextOffset > span.offset
+          ? pStart + nextOffset
+          : paragraphEnd;
+
+      words.push({
+        text: span.text,
+        offset: start,
+        duration: Math.max(
+          40,
+          end - start
+        )
+      });
+    });
+  }
+
+  return words;
+}
+
 async function tryOldMethod(videoId, lang) {
-  if (!fetchTranscript) return [];
+  if (!fetchTranscript) {
+    return {
+      items: [],
+      words: []
+    };
+  }
+
+  let rawTimedText = "";
+
+  const captureFetch = async (
+    input,
+    init
+  ) => {
+    const response =
+      await fetch(input, init);
+
+    try {
+      const url =
+        typeof input === "string"
+          ? input
+          : input?.url || "";
+
+      if (
+        String(url).includes(
+          "api/timedtext"
+        )
+      ) {
+        const text =
+          await response
+            .clone()
+            .text();
+
+        if (
+          text.includes("<timedtext") ||
+          text.includes("<p ")
+        ) {
+          rawTimedText = text;
+        }
+      }
+    } catch {}
+
+    return response;
+  };
 
   try {
-    const items = await fetchTranscript(videoId, { lang });
+    const items =
+      await fetchTranscript(
+        videoId,
+        {
+          lang,
+          fetch: captureFetch
+        }
+      );
 
-    if (Array.isArray(items) && items.length) {
-      return items;
+    if (
+      Array.isArray(items) &&
+      items.length
+    ) {
+      return {
+        items,
+        words:
+          parseSrv3Words(
+            rawTimedText
+          )
+      };
     }
   } catch (error) {
     console.log(
@@ -22,7 +193,10 @@ async function tryOldMethod(videoId, lang) {
     );
   }
 
-  return [];
+  return {
+    items: [],
+    words: []
+  };
 }
 
 async function getFromSupadata(videoId, lang) {
@@ -106,10 +280,16 @@ export default async function handler(req, res) {
 
   try {
     // 1. Thử cách cũ trước: không tốn Supadata credit
-    const oldItems = await tryOldMethod(
+    const oldResult = await tryOldMethod(
       videoId,
       lang
     );
+
+    const oldItems =
+      oldResult.items || [];
+
+    const words =
+      oldResult.words || [];
 
     if (oldItems.length) {
       res.setHeader(
@@ -121,7 +301,8 @@ export default async function handler(req, res) {
         videoId,
         lang,
         source: "youtube-transcript",
-        items: oldItems
+        items: oldItems,
+        words
       });
     }
 
@@ -140,7 +321,8 @@ export default async function handler(req, res) {
       videoId,
       lang,
       source: "supadata",
-      items
+      items,
+      words
     });
 
   } catch (error) {
