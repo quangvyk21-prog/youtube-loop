@@ -823,21 +823,23 @@ kbd {
 
 .t-loop-saved-row {
   display: grid;
-  grid-template-columns: 1fr 24px;
-  gap: 4px;
-  align-items: stretch;
+  grid-template-columns: 1fr 16px;
+  gap: 2px;
+  align-items: center;
 }
 
 .t-loop-delete-btn {
-  width: 24px;
-  min-width: 24px;
-  border: 1px solid rgba(255,255,255,.20);
-  border-radius: 5px;
-  background: rgba(55,30,36,.88);
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 3px;
+  background: rgba(55,30,36,.78);
   color: #fff;
-  font-size: 14px;
+  font-size: 10px;
   font-weight: 900;
-  line-height: 1;
+  line-height: 14px;
   cursor: pointer;
 }
 
