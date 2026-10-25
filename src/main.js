@@ -631,6 +631,43 @@ function playSavedTLoop(loopId, tLoopId) {
   );
 }
 
+function deleteSavedTLoop(loopId, tLoopId) {
+  const loop =
+    loadAllLoops().find(
+      item => item.id === loopId
+    );
+
+  if (!loop) return;
+
+  const saved =
+    getSavedTLoops(loop);
+
+  const nextSaved =
+    saved.filter(
+      item => item.id !== tLoopId
+    );
+
+  updateLoop(loop.id, {
+    tLoops: nextSaved,
+    tLoopStart: null,
+    tLoopEnd: null
+  });
+
+  // Nếu đang phát đúng loop T vừa xóa thì thoát T.
+  if (activeSavedTLoopId === tLoopId) {
+    sentenceLoopActive = false;
+    sentenceLoopSetting = false;
+    sentenceLoopStart = null;
+    sentenceLoopEnd = null;
+    activeSavedTLoopId = null;
+    suspendAutoLoop = false;
+  }
+
+  renderLoops();
+
+  setError("Đã xóa loop T.");
+}
+
 function updateLoop(loopId, patch) {
   const items = loadAllLoops().map(item => item.id === loopId ? { ...item, ...patch } : item);
   saveAllLoops(items);
@@ -865,18 +902,30 @@ function renderLoops() {
             ${savedTLoops
               .map(
                 (item, tIndex) => `
-                  <button
-                    class="t-loop-saved-btn${activeSavedTLoopId === item.id ? " active" : ""}"
-                    data-action="play-t-loop"
-                    data-parent-id="${loop.id}"
-                    data-t-id="${item.id}"
-                    title="Nghe lại loop T${tIndex + 1}"
-                  >
-                    T${tIndex + 1}
-                    <span>
-                      ${formatLoopTime(item.start)}-${formatLoopTime(item.end)}
-                    </span>
-                  </button>
+                  <div class="t-loop-saved-row">
+                    <button
+                      class="t-loop-saved-btn${activeSavedTLoopId === item.id ? " active" : ""}"
+                      data-action="play-t-loop"
+                      data-parent-id="${loop.id}"
+                      data-t-id="${item.id}"
+                      title="Nghe lại loop T${tIndex + 1}"
+                    >
+                      T${tIndex + 1}
+                      <span>
+                        ${formatLoopTime(item.start)}-${formatLoopTime(item.end)}
+                      </span>
+                    </button>
+
+                    <button
+                      class="t-loop-delete-btn"
+                      data-action="delete-t-loop"
+                      data-parent-id="${loop.id}"
+                      data-t-id="${item.id}"
+                      title="Xóa loop T${tIndex + 1}"
+                    >
+                      ×
+                    </button>
+                  </div>
                 `
               )
               .join("")}
@@ -2254,6 +2303,11 @@ els.savedLoops.addEventListener("click", (e) => {
 
   if (action === "delete") {
     deleteLoop(id);
+  } else if (action === "delete-t-loop") {
+    deleteSavedTLoop(
+      target.dataset.parentId,
+      target.dataset.tId
+    );
   } else if (action === "play-t-loop") {
     playSavedTLoop(
       target.dataset.parentId,
