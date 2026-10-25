@@ -1498,6 +1498,12 @@ function updateSubtitleForTime(time, force = false) {
   translateCue(cue, index);
 }
 
+function cueEndsPhrase(text = "") {
+  return /[,;:.!?]["')\]]*$/.test(
+    String(text).trim()
+  );
+}
+
 function getActivePlaybackSegment() {
   const loop = getActiveLoop();
   const segments = getLoopSegments(loop);
@@ -1525,6 +1531,7 @@ function findShortLoopBounds() {
   if (!segment) return null;
 
   let now = 0;
+
   try {
     now = player.getCurrentTime();
   } catch {
@@ -1534,49 +1541,93 @@ function findShortLoopBounds() {
   const cueIndex = findCueIndex(now);
   if (cueIndex < 0) return null;
 
-  const cue = transcriptCues[cueIndex];
+  let startIndex = cueIndex;
+  let endIndex = cueIndex;
 
-  // T chỉ lấy một đoạn ngắn, ổn định quanh vị trí hiện tại.
-  // Không cố suy đoán dấu câu/timestamp từng từ.
-  const WINDOW = 1.45;
+  // Đi lùi tới cue ngay sau dấu ngắt gần nhất.
+  for (let i = cueIndex - 1; i >= 0; i--) {
+    const cue = transcriptCues[i];
 
-  let start = Math.max(
-    segment.start + 0.01,
-    now - 0.35
+    if (cue.start < segment.start) {
+      break;
+    }
+
+    if (cueEndsPhrase(cue.text)) {
+      startIndex = i + 1;
+      break;
+    }
+
+    startIndex = i;
+  }
+
+  // Đi tới cue có dấu ngắt kế tiếp.
+  for (
+    let i = cueIndex;
+    i < transcriptCues.length;
+    i++
+  ) {
+    const cue = transcriptCues[i];
+
+    if (cue.start >= segment.end) {
+      break;
+    }
+
+    endIndex = i;
+
+    if (cueEndsPhrase(cue.text)) {
+      break;
+    }
+  }
+
+  const firstCue = transcriptCues[startIndex];
+  const lastCue = transcriptCues[endIndex];
+
+  if (!firstCue || !lastCue) {
+    return null;
+  }
+
+  const nextCue = transcriptCues[endIndex + 1];
+
+  // Chỉ dùng timestamp THẬT của cue.
+  const start = Math.max(
+    segment.start + 0.005,
+    firstCue.start + 0.005
   );
 
   let end = Math.min(
-    segment.end - 0.01,
-    start + WINDOW
+    segment.end - 0.005,
+    lastCue.end
   );
 
-  // Nếu cue hiện tại ngắn hơn thì ưu tiên nằm gọn trong cue.
+  // Nếu cue.end chồng lên cue tiếp theo thì dừng trước cue tiếp.
   if (
-    cue &&
-    Number.isFinite(cue.start) &&
-    Number.isFinite(cue.end)
+    nextCue &&
+    Number.isFinite(nextCue.start) &&
+    nextCue.start > lastCue.start
   ) {
-    start = Math.max(
-      segment.start + 0.01,
-      Math.max(cue.start + 0.01, start)
-    );
-
     end = Math.min(
-      segment.end - 0.01,
-      Math.min(cue.end - 0.08, end)
+      end,
+      nextCue.start - 0.08
     );
   }
 
-  if (!(end > start + 0.20)) {
+  if (!(end > start + 0.12)) {
     return null;
   }
+
+  const phraseText = transcriptCues
+    .slice(startIndex, endIndex + 1)
+    .map(cue => cue.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   return {
     start,
     end,
-    startIndex: cueIndex,
-    endIndex: cueIndex,
-    phraseText: cue?.text || ""
+    startIndex,
+    endIndex,
+    phraseText
   };
 }
 
@@ -1616,7 +1667,7 @@ function toggleSentenceLoop() {
   const bounds = findShortLoopBounds();
 
   if (!bounds) {
-    setError("Không xác định được đoạn ngắn tại vị trí này.");
+    setError("Không xác định được cụm theo caption tại vị trí này.");
     return;
   }
 
@@ -1644,8 +1695,8 @@ function toggleSentenceLoop() {
 
   setError(
     phraseText
-      ? `T • đang lặp đoạn: ${phraseText}`
-      : "T • đang lặp đoạn ngắn"
+      ? `T • đang lặp cụm: ${phraseText}`
+      : "T • đang lặp cụm hiện tại"
   );
 }
 
@@ -1762,7 +1813,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd - 0.06) {
+      if (current >= sentenceLoopEnd - 0.04) {
         player.seekTo(
           sentenceLoopStart,
           true
