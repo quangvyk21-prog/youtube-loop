@@ -1627,7 +1627,7 @@ function findCompleteSentenceBounds(cueIndex) {
   const nextCue =
     transcriptCues[endIndex + 1];
 
-  let rawEnd = lastCue.end;
+  let rawEnd = lastCue.end - 0.08;
 
   if (
     nextCue &&
@@ -1635,7 +1635,7 @@ function findCompleteSentenceBounds(cueIndex) {
   ) {
     rawEnd = Math.min(
       rawEnd,
-      nextCue.start - 0.10
+      nextCue.start - 0.22
     );
   }
 
@@ -1855,7 +1855,7 @@ function startMonitor() {
       Number.isFinite(sentenceLoopStart) &&
       Number.isFinite(sentenceLoopEnd)
     ) {
-      if (current >= sentenceLoopEnd) {
+      if (current >= sentenceLoopEnd - 0.07) {
         player.seekTo(
           sentenceLoopStart,
           true
