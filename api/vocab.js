@@ -49,10 +49,39 @@ function checkAccess(req, res) {
   return apiKey;
 }
 
+function getModelText(data) {
+  return String(
+    data?.candidates?.[0]?.content?.parts
+      ?.map(part => part?.text || "")
+      .join("") || ""
+  ).trim();
+}
+
+function parseJson(text) {
+  const raw = String(text || "").trim();
+
+  try {
+    return JSON.parse(raw);
+  } catch {}
+
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+
+  if (first >= 0 && last > first) {
+    try {
+      return JSON.parse(
+        raw.slice(first, last + 1)
+      );
+    } catch {}
+  }
+
+  return null;
+}
+
 async function fetchWithTimeout(
   url,
   options = {},
-  timeoutMs = 15000
+  timeoutMs = 18000
 ) {
   const controller =
     new AbortController();
@@ -70,11 +99,10 @@ async function fetchWithTimeout(
     if (error?.name === "AbortError") {
       const timeoutError =
         new Error(
-          "Gemini phản hồi quá lâu. Đợi vài giây rồi thử lại."
+          "Gemini phản hồi quá lâu."
         );
 
       timeoutError.status = 504;
-
       throw timeoutError;
     }
 
@@ -82,6 +110,162 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function callGemini(
+  apiKey,
+  prompt
+) {
+  const response =
+    await fetchWithTimeout(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "x-goog-api-key":
+            apiKey
+        },
+
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: prompt
+                }
+              ]
+            }
+          ],
+
+          generationConfig: {
+            maxOutputTokens: 900,
+            temperature: 0.15,
+            responseMimeType:
+              "application/json"
+          }
+        })
+      },
+      18000
+    );
+
+  const data = await response
+    .json()
+    .catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.error?.message ||
+      `Gemini HTTP ${response.status}`
+    );
+
+    error.status = response.status;
+    throw error;
+  }
+
+  return getModelText(data);
+}
+
+function parseVocabulary(raw) {
+  const parsed = parseJson(raw);
+
+  const source =
+    Array.isArray(parsed?.items)
+      ? parsed.items
+      : [];
+
+  return source
+    .map(item => ({
+      term: clean(
+        item?.term
+      ),
+
+      meaningVi: clean(
+        item?.meaningVi
+      )
+    }))
+    .filter(
+      item =>
+        item.term &&
+        item.meaningVi
+    )
+    .slice(0, 8);
+}
+
+function shouldRetry(error) {
+  const status =
+    Number(error?.status) || 0;
+
+  return (
+    status === 0 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
+async function generateVocabulary(
+  apiKey,
+  prompt
+) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const raw =
+        await callGemini(
+          apiKey,
+          attempt === 1
+            ? prompt
+            : [
+                prompt,
+                "",
+                "QUAN TRỌNG LẦN NÀY:",
+                "Chỉ trả JSON hợp lệ.",
+                'Bắt buộc có dạng {"items":[{"term":"...","meaningVi":"..."}]}.',
+                "Không được trả văn bản ngoài JSON."
+              ].join("\n")
+        );
+
+      const items =
+        parseVocabulary(raw);
+
+      if (items.length) {
+        return items;
+      }
+
+      const parseError =
+        new Error(
+          "Gemini trả danh sách từ mới rỗng."
+        );
+
+      parseError.status = 502;
+      throw parseError;
+
+    } catch (error) {
+      lastError = error;
+
+      if (
+        attempt >= 2 ||
+        !shouldRetry(error)
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      "Không tạo được từ mới."
+    )
+  );
 }
 
 export default async function handler(
@@ -144,135 +328,20 @@ export default async function handler(
     "- Không thêm ví dụ.",
     "",
     "QUAN TRỌNG:",
-    "Danh sách cuối cùng phải giống như một 'bản đồ ý nghĩa' của đoạn loop: nhìn các từ/cụm này phải có thể hình dung đoạn hội thoại đang nói về chuyện gì.",
+    "Chỉ trả JSON hợp lệ theo đúng dạng:",
+    '{"items":[{"term":"...","meaningVi":"..."}]}',
+    "Không markdown. Không giải thích ngoài JSON.",
     "",
     `LOOP: ${loopName || "Loop"}`,
     `PHỤ ĐỀ: ${transcript}`
   ].join("\n");
 
   try {
-    const response =
-      await fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            "x-goog-api-key":
-              apiKey
-          },
-
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: prompt
-                  }
-                ]
-              }
-            ],
-
-            generationConfig: {
-              maxOutputTokens: 700,
-              temperature: 0.2,
-
-              responseMimeType:
-                "application/json",
-
-              responseSchema: {
-                type: "OBJECT",
-
-                properties: {
-                  items: {
-                    type: "ARRAY",
-                    maxItems: 8,
-
-                    items: {
-                      type: "OBJECT",
-
-                      properties: {
-                        term: {
-                          type: "STRING"
-                        },
-
-                        meaningVi: {
-                          type: "STRING"
-                        }
-                      },
-
-                      required: [
-                        "term",
-                        "meaningVi"
-                      ]
-                    }
-                  }
-                },
-
-                required: ["items"]
-              }
-            }
-          })
-        },
-        15000
-      );
-
-    const data = await response
-      .json()
-      .catch(() => ({}));
-
-    if (!response.ok) {
-      return res
-        .status(response.status)
-        .json({
-          error:
-            data?.error?.message ||
-            `Gemini HTTP ${response.status}`
-        });
-    }
-
-    const raw = clean(
-      data?.candidates?.[0]?.content?.parts
-        ?.map(
-          part => part?.text || ""
-        )
-        .join("")
-    );
-
-    let parsed;
-
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return res.status(502).json({
-        error:
-          "Gemini trả danh sách từ mới không đúng JSON."
-      });
-    }
-
     const items =
-      Array.isArray(parsed?.items)
-        ? parsed.items
-            .map(item => ({
-              term: clean(
-                item?.term
-              ),
-
-              meaningVi: clean(
-                item?.meaningVi
-              )
-            }))
-            .filter(
-              item =>
-                item.term &&
-                item.meaningVi
-            )
-            .slice(0, 8)
-        : [];
+      await generateVocabulary(
+        apiKey,
+        prompt
+      );
 
     return res.status(200).json({
       items,
