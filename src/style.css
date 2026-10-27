@@ -124,7 +124,8 @@ button { cursor: pointer; }
 .saved-loops {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 5px 8px 8px;
   display: flex;
   flex-direction: column;
@@ -133,11 +134,13 @@ button { cursor: pointer; }
 
 .loop-card {
   position: relative;
+  flex: 0 0 auto;
+  height: auto;
   background: #6c6368;
   min-height: 58px;
   padding: 7px 9px 8px;
   border-left: 3px solid transparent;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .loop-card.active {
