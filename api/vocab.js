@@ -1,6 +1,9 @@
-const MODEL =
+const PRIMARY_MODEL =
   process.env.GEMINI_MODEL ||
   "gemini-3.5-flash-lite";
+
+const FALLBACK_MODEL =
+  "gemini-3.8-flash";
 
 function clean(value) {
   return String(value || "")
@@ -52,7 +55,7 @@ function checkAccess(req, res) {
 async function fetchWithTimeout(
   url,
   options = {},
-  timeoutMs = 10000
+  timeoutMs = 22000
 ) {
   const controller =
     new AbortController();
@@ -70,7 +73,7 @@ async function fetchWithTimeout(
     if (error?.name === "AbortError") {
       const timeoutError =
         new Error(
-          "Tạo từ vựng bị timeout."
+          "Gemini tạo từ vựng phản hồi quá lâu."
         );
 
       timeoutError.status = 504;
@@ -129,6 +132,137 @@ function parseItems(data) {
     .slice(0, 8);
 }
 
+function getThinkingLevel(model) {
+  return model.includes("3.8")
+    ? "low"
+    : "minimal";
+}
+
+async function callModel(
+  apiKey,
+  model,
+  prompt
+) {
+  const response =
+    await fetchWithTimeout(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "x-goog-api-key":
+            apiKey
+        },
+
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: prompt
+                }
+              ]
+            }
+          ],
+
+          generationConfig: {
+            maxOutputTokens: 520,
+
+            thinkingConfig: {
+              thinkingLevel:
+                getThinkingLevel(model)
+            },
+
+            responseMimeType:
+              "application/json",
+
+            responseSchema: {
+              type: "OBJECT",
+
+              properties: {
+                items: {
+                  type: "ARRAY",
+                  maxItems: 8,
+
+                  items: {
+                    type: "OBJECT",
+
+                    properties: {
+                      term: {
+                        type: "STRING"
+                      },
+
+                      meaningVi: {
+                        type: "STRING"
+                      }
+                    },
+
+                    required: [
+                      "term",
+                      "meaningVi"
+                    ]
+                  }
+                }
+              },
+
+              required: ["items"]
+            }
+          }
+        })
+      },
+      22000
+    );
+
+  const data = await response
+    .json()
+    .catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.error?.message ||
+      `Gemini HTTP ${response.status}`
+    );
+
+    error.status = response.status;
+    throw error;
+  }
+
+  const items =
+    parseItems(data);
+
+  if (!items.length) {
+    const error = new Error(
+      "Gemini không trả được danh sách từ vựng."
+    );
+
+    error.status = 502;
+    throw error;
+  }
+
+  return {
+    items,
+    model
+  };
+}
+
+function canFallback(error) {
+  const status =
+    Number(error?.status) || 0;
+
+  return (
+    status === 0 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
 export default async function handler(
   req,
   res
@@ -146,8 +280,6 @@ export default async function handler(
 
   if (!apiKey) return;
 
-  // Vocab chỉ cần nội dung của loop,
-  // không cần gửi paragraph quá dài cho Gemini.
   const transcript = clean(
     req.body?.transcript
   ).slice(0, 3500);
@@ -176,117 +308,45 @@ export default async function handler(
     `TRANSCRIPT: ${transcript}`
   ].join("\n");
 
-  try {
-    const response =
-      await fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-        {
-          method: "POST",
+  const models = [
+    PRIMARY_MODEL,
+    FALLBACK_MODEL
+  ].filter(
+    (model, index, list) =>
+      model &&
+      list.indexOf(model) === index
+  );
 
-          headers: {
-            "Content-Type":
-              "application/json",
+  let lastError = null;
 
-            "x-goog-api-key":
-              apiKey
-          },
+  for (const model of models) {
+    try {
+      const result =
+        await callModel(
+          apiKey,
+          model,
+          prompt
+        );
 
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: prompt
-                  }
-                ]
-              }
-            ],
-
-            generationConfig: {
-              maxOutputTokens: 520,
-
-              thinkingConfig: {
-                thinkingLevel:
-                  "minimal"
-              },
-
-              responseMimeType:
-                "application/json",
-
-              responseSchema: {
-                type: "OBJECT",
-
-                properties: {
-                  items: {
-                    type: "ARRAY",
-                    maxItems: 8,
-
-                    items: {
-                      type: "OBJECT",
-
-                      properties: {
-                        term: {
-                          type: "STRING"
-                        },
-
-                        meaningVi: {
-                          type: "STRING"
-                        }
-                      },
-
-                      required: [
-                        "term",
-                        "meaningVi"
-                      ]
-                    }
-                  }
-                },
-
-                required: ["items"]
-              }
-            }
-          })
-        },
-        10000
-      );
-
-    const data = await response
-      .json()
-      .catch(() => ({}));
-
-    if (!response.ok) {
-      return res
-        .status(response.status)
-        .json({
-          error:
-            data?.error?.message ||
-            `Gemini HTTP ${response.status}`
-        });
-    }
-
-    const items =
-      parseItems(data);
-
-    if (!items.length) {
-      return res.status(502).json({
-        error:
-          "Gemini không trả được danh sách từ vựng."
+      return res.status(200).json({
+        items: result.items,
+        model: result.model
       });
+
+    } catch (error) {
+      lastError = error;
+
+      if (!canFallback(error)) {
+        break;
+      }
     }
-
-    return res.status(200).json({
-      items,
-      model: MODEL
-    });
-
-  } catch (error) {
-    return res
-      .status(error?.status || 502)
-      .json({
-        error:
-          error?.message ||
-          "Không gọi được Gemini API."
-      });
   }
+
+  return res
+    .status(lastError?.status || 502)
+    .json({
+      error:
+        lastError?.message ||
+        "Không tạo được từ vựng."
+    });
 }
