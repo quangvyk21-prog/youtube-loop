@@ -2,8 +2,16 @@ const PRIMARY_MODEL =
   process.env.GEMINI_MODEL ||
   "gemini-3.5-flash-lite";
 
-const FALLBACK_MODEL =
-  "gemini-3.8-flash";
+const FALLBACK_MODELS = [
+  "gemini-3.6-flash",
+  "gemini-3.8-flash"
+];
+
+function sleep(ms) {
+  return new Promise(resolve =>
+    setTimeout(resolve, ms)
+  );
+}
 
 function clean(value) {
   return String(value || "")
@@ -143,110 +151,131 @@ async function callModel(
   model,
   prompt
 ) {
-  const response =
-    await fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
+  let lastError = null;
 
-        headers: {
-          "Content-Type":
-            "application/json",
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response =
+        await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
 
-          "x-goog-api-key":
-            apiKey
-        },
+            headers: {
+              "Content-Type":
+                "application/json",
 
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: prompt
-                }
-              ]
-            }
-          ],
-
-          generationConfig: {
-            maxOutputTokens: 520,
-
-            thinkingConfig: {
-              thinkingLevel:
-                getThinkingLevel(model)
+              "x-goog-api-key":
+                apiKey
             },
 
-            responseMimeType:
-              "application/json",
-
-            responseSchema: {
-              type: "OBJECT",
-
-              properties: {
-                items: {
-                  type: "ARRAY",
-                  maxItems: 8,
-
-                  items: {
-                    type: "OBJECT",
-
-                    properties: {
-                      term: {
-                        type: "STRING"
-                      },
-
-                      meaningVi: {
-                        type: "STRING"
-                      }
-                    },
-
-                    required: [
-                      "term",
-                      "meaningVi"
-                    ]
-                  }
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    {
+                      text: prompt
+                    }
+                  ]
                 }
-              },
+              ],
 
-              required: ["items"]
-            }
-          }
-        })
-      },
-      22000
-    );
+              generationConfig: {
+                maxOutputTokens: 520,
 
-  const data = await response
-    .json()
-    .catch(() => ({}));
+                thinkingConfig: {
+                  thinkingLevel:
+                    getThinkingLevel(model)
+                },
 
-  if (!response.ok) {
-    const error = new Error(
-      data?.error?.message ||
-      `Gemini HTTP ${response.status}`
-    );
+                responseMimeType:
+                  "application/json",
 
-    error.status = response.status;
-    throw error;
+                responseSchema: {
+                  type: "OBJECT",
+
+                  properties: {
+                    items: {
+                      type: "ARRAY",
+                      maxItems: 8,
+
+                      items: {
+                        type: "OBJECT",
+
+                        properties: {
+                          term: {
+                            type: "STRING"
+                          },
+
+                          meaningVi: {
+                            type: "STRING"
+                          }
+                        },
+
+                        required: [
+                          "term",
+                          "meaningVi"
+                        ]
+                      }
+                    }
+                  },
+
+                  required: ["items"]
+                }
+              }
+            })
+          },
+          9000
+        );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        const error = new Error(
+          data?.error?.message ||
+          `Gemini HTTP ${response.status}`
+        );
+
+        error.status = response.status;
+        throw error;
+      }
+
+      const items =
+        parseItems(data);
+
+      if (!items.length) {
+        const error = new Error(
+          "Gemini không trả được danh sách từ vựng."
+        );
+
+        error.status = 502;
+        throw error;
+      }
+
+      return {
+        items,
+        model
+      };
+
+    } catch (error) {
+      lastError = error;
+
+      if (
+        attempt >= 2 ||
+        !canFallback(error)
+      ) {
+        throw error;
+      }
+
+      // Retry ngắn theo khuyến nghị backoff khi 429/503.
+      await sleep(700 * attempt);
+    }
   }
 
-  const items =
-    parseItems(data);
-
-  if (!items.length) {
-    const error = new Error(
-      "Gemini không trả được danh sách từ vựng."
-    );
-
-    error.status = 502;
-    throw error;
-  }
-
-  return {
-    items,
-    model
-  };
+  throw lastError;
 }
 
 function canFallback(error) {
@@ -310,7 +339,7 @@ export default async function handler(
 
   const models = [
     PRIMARY_MODEL,
-    FALLBACK_MODEL
+    ...FALLBACK_MODELS
   ].filter(
     (model, index, list) =>
       model &&
@@ -342,11 +371,24 @@ export default async function handler(
     }
   }
 
+  const finalStatus =
+    Number(lastError?.status) || 502;
+
+  const overloaded =
+    finalStatus === 429 ||
+    finalStatus === 503 ||
+    /high demand|overload|temporarily/i.test(
+      String(lastError?.message || "")
+    );
+
   return res
-    .status(lastError?.status || 502)
+    .status(finalStatus)
     .json({
-      error:
-        lastError?.message ||
-        "Không tạo được từ vựng."
+      error: overloaded
+        ? "Gemini đang quá tải trên tất cả model dự phòng. Chọn lại loop để thử lại."
+        : (
+            lastError?.message ||
+            "Không tạo được từ vựng."
+          )
     });
 }
