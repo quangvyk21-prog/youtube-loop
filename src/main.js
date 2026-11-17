@@ -1383,6 +1383,108 @@ function adjustPoint(point, delta) {
   const loop = getActiveLoop();
   if (!loop || !player) return;
 
+  // Khi đang phát T-loop:
+  // 4 nút A-/A+/B-/B+ tạm thời chỉnh START/END của T-loop.
+  // Khi thoát T-loop, logic phía dưới tự trở về chỉnh loop chính.
+  if (
+    sentenceLoopActive &&
+    Number.isFinite(sentenceLoopStart) &&
+    Number.isFinite(sentenceLoopEnd) &&
+    activeSavedTLoopId
+  ) {
+    const segments = getLoopSegments(loop);
+
+    const activeSegment =
+      segments.length === 2
+        ? (
+            segments[activeComboSegmentIndex] ||
+            segments[0]
+          )
+        : segments[0];
+
+    if (!activeSegment) return;
+
+    let nextStart = sentenceLoopStart;
+    let nextEnd = sentenceLoopEnd;
+
+    if (point === "a") {
+      nextStart = Math.max(
+        activeSegment.start + 0.01,
+        sentenceLoopStart + delta
+      );
+
+      if (
+        nextStart >=
+        sentenceLoopEnd - 0.10
+      ) {
+        return;
+      }
+    } else {
+      nextEnd = Math.min(
+        activeSegment.end - 0.01,
+        sentenceLoopEnd + delta
+      );
+
+      if (
+        nextEnd <=
+        sentenceLoopStart + 0.10
+      ) {
+        return;
+      }
+    }
+
+    sentenceLoopStart = nextStart;
+    sentenceLoopEnd = nextEnd;
+
+    // Lưu lại đúng T-loop đang chỉnh.
+    const saved =
+      getSavedTLoops(loop);
+
+    const nextSaved =
+      saved.map(item =>
+        item.id === activeSavedTLoopId
+          ? {
+              ...item,
+              start: sentenceLoopStart,
+              end: sentenceLoopEnd
+            }
+          : item
+      );
+
+    updateLoop(loop.id, {
+      tLoops: nextSaved,
+      tLoopStart: null,
+      tLoopEnd: null
+    });
+
+    renderLoops();
+    updateLoopUi();
+
+    // Sau mỗi lần chỉnh, tua về START T để nghe ngay thay đổi.
+    try {
+      player.seekTo(
+        sentenceLoopStart,
+        true
+      );
+
+      player.playVideo();
+    } catch {}
+
+    currentCueIndex = -1;
+
+    updateSubtitleForTime(
+      sentenceLoopStart,
+      true
+    );
+
+    setError(
+      `T • ${formatLoopTime(sentenceLoopStart)} - ${formatLoopTime(sentenceLoopEnd)}`
+    );
+
+    return;
+  }
+
+  // Không ở T-loop -> giữ nguyên hành vi chỉnh loop chính.
   if (isCombo(loop)) {
     setError("Hãy chỉnh thời gian ở 2 loop gốc.");
     return;
@@ -1390,35 +1492,70 @@ function adjustPoint(point, delta) {
 
   if (point === "a") {
     if (!Number.isFinite(loop.start)) return;
-    const next = clamp(loop.start + delta);
-    if (Number.isFinite(loop.end) && next >= loop.end) return;
-    updateLoop(loop.id, { start: next, vocab: [], vocabStatus: "waiting", vocabSignature: null });
+
+    const next =
+      clamp(loop.start + delta);
+
+    if (
+      Number.isFinite(loop.end) &&
+      next >= loop.end
+    ) {
+      return;
+    }
+
+    updateLoop(loop.id, {
+      start: next,
+      vocab: [],
+      vocabStatus: "waiting",
+      vocabSignature: null
+    });
+
   } else {
     if (!Number.isFinite(loop.end)) return;
-    const next = clamp(loop.end + delta);
-    if (Number.isFinite(loop.start) && next <= loop.start) return;
-    updateLoop(loop.id, { end: next, vocab: [], vocabStatus: "waiting", vocabSignature: null });
+
+    const next =
+      clamp(loop.end + delta);
+
+    if (
+      Number.isFinite(loop.start) &&
+      next <= loop.start
+    ) {
+      return;
+    }
+
+    updateLoop(loop.id, {
+      end: next,
+      vocab: [],
+      vocabStatus: "waiting",
+      vocabSignature: null
+    });
   }
 
   renderLoops();
   updateLoopUi();
 
-  const updatedLoop = getActiveLoop();
+  const updatedLoop =
+    getActiveLoop();
+
   if (isLoopReady(updatedLoop)) {
-    // Sau mỗi lần A-/A+/B-/B+, tua lại đầu loop để nghe ngay thay đổi.
     suspendAutoLoop = false;
     activeComboSegmentIndex = 0;
     lastLiveSidebarSecond = -1;
 
     try {
-      player.seekTo(updatedLoop.start, true);
+      player.seekTo(
+        updatedLoop.start,
+        true
+      );
+
       player.playVideo();
     } catch {}
 
-    scheduleVocabularyRefresh(updatedLoop.id);
+    scheduleVocabularyRefresh(
+      updatedLoop.id
+    );
   }
 }
-
 
 function applySubtitleVisibility() {
   els.subtitleEnglish.classList.toggle("subtitle-blurred", englishSubtitleBlurred);
