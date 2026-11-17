@@ -1392,6 +1392,10 @@ function adjustPoint(point, delta) {
     Number.isFinite(sentenceLoopEnd) &&
     activeSavedTLoopId
   ) {
+    // Nút ngoài giao diện vẫn là ±0.3s,
+    // nhưng khi đang chỉnh T-loop thì dùng bước ±0.15s.
+    const tDelta = delta * 0.5;
+
     const segments = getLoopSegments(loop);
 
     const activeSegment =
@@ -1410,7 +1414,7 @@ function adjustPoint(point, delta) {
     if (point === "a") {
       nextStart = Math.max(
         activeSegment.start + 0.01,
-        sentenceLoopStart + delta
+        sentenceLoopStart + tDelta
       );
 
       if (
@@ -1422,7 +1426,7 @@ function adjustPoint(point, delta) {
     } else {
       nextEnd = Math.min(
         activeSegment.end - 0.01,
-        sentenceLoopEnd + delta
+        sentenceLoopEnd + tDelta
       );
 
       if (
